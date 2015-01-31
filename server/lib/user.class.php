@@ -5,6 +5,8 @@ class User implements \Stalker\Lib\StbApi\User
     private $id;
     private static $instance = null;
     private $profile;
+    private $ip;
+    private $verified;
 
     /**
      * @static
@@ -30,14 +32,24 @@ class User implements \Stalker\Lib\StbApi\User
     private function __construct($uid = 0){
         $this->id = (int) $uid;
         $this->profile = Mysql::getInstance()->from('users')->where(array('id' => $this->id))->get()->first();
+        $this->ip = !empty($_SERVER['HTTP_X_REAL_IP']) ? $_SERVER['HTTP_X_REAL_IP'] : @$_SERVER['REMOTE_ADDR'];
 
-        if ($this->profile['tariff_plan_id'] == 0){
-            $this->profile['tariff_plan_id'] = (int) Mysql::getInstance()->from('tariff_plan')->where(array('user_default' => 1))->get()->first('id');
+        if (!empty($this->profile)){
+
+            if ($this->profile['tariff_plan_id'] == 0){
+                $this->profile['tariff_plan_id'] = (int) Mysql::getInstance()->from('tariff_plan')->where(array('user_default' => 1))->get()->first('id');
+            }
+
+            $this->verified = $this->profile['verified'] === '1';
         }
     }
 
     public function getId(){
         return $this->id;
+    }
+
+    public function getIp(){
+        return $this->ip;
     }
 
     public static function getUserAgent(){
@@ -53,15 +65,20 @@ class User implements \Stalker\Lib\StbApi\User
 
     public static function getCountryId(){
 
-        $ip = !empty($_SERVER['HTTP_X_REAL_IP']) ? $_SERVER['HTTP_X_REAL_IP'] : $_SERVER['REMOTE_ADDR'];
-
-        $country_code = @geoip_country_code_by_name($ip);
+        $country_code = self::getCountryCode();
 
         if (empty($country_code)){
             return 0;
         }
 
         return (int) Mysql::getInstance()->from('countries')->where(array('iso2' => $country_code))->get()->first('id');
+    }
+
+    public static function getCountryCode(){
+
+        $ip = !empty($_SERVER['HTTP_X_REAL_IP']) ? $_SERVER['HTTP_X_REAL_IP'] : @$_SERVER['REMOTE_ADDR'];
+
+        return @geoip_country_code_by_name($ip);
     }
 
     public function getMac(){
@@ -82,6 +99,14 @@ class User implements \Stalker\Lib\StbApi\User
 
     public function getLogin(){
         return $this->profile['login'];
+    }
+
+    public function isVerified(){
+        return $this->verified;
+    }
+
+    public function setVerified(){
+        $this->verified = true;
     }
 
     public function setSerialNumber($serial_number){
@@ -211,10 +236,54 @@ class User implements \Stalker\Lib\StbApi\User
         return Mysql::getInstance()->delete('vclub_not_ended', array('uid' => $this->id, 'video_id' => $video_id))->result();
     }
 
+    public function getTvChannelsAspect(){
+
+        $aspect = Mysql::getInstance()->from('tv_aspect')->where(array('uid' => $this->id))->get()->first('aspect');
+
+        if (empty($aspect)){
+            return array();
+        }
+
+        $aspect = json_decode($aspect, true);
+
+        if (!$aspect){
+            return array();
+        }
+
+        return $aspect;
+    }
+
+    public function setTvChannelAspect($ch_id, $aspect){
+
+        $aspects = $this->getTvChannelsAspect();
+
+        $init_required = empty($aspects);
+
+        $aspects[(int) $ch_id] = (int) $aspect;
+
+        $aspects = json_encode($aspects);
+
+        if ($init_required){
+            return Mysql::getInstance()->insert('tv_aspect', array('aspect' => $aspects, 'uid' => $this->id))->insert_id();
+        }else{
+            return Mysql::getInstance()->update('tv_aspect', array('aspect' => $aspects), array('uid' => $this->id))->result();
+        }
+    }
+
+    public function updateIp(){
+
+        return Mysql::getInstance()->update('users',
+            array('ip' => $this->ip),
+            array('id' => $this->id));
+    }
+
     public function updateKeepAlive(){
 
         return Mysql::getInstance()->update('users',
-            array('keep_alive' => 'NOW()'),
+            array(
+                 'keep_alive' => 'NOW()',
+                 'ip' => $this->ip
+            ),
             array('id' => $this->id));
     }
 
@@ -391,10 +460,17 @@ class User implements \Stalker\Lib\StbApi\User
             }
         }
 
-        return Mysql::getInstance()->insert('user_package_subscription', array(
+        $return = Mysql::getInstance()->insert('user_package_subscription', array(
             'user_id' => $this->id,
             'package_id' => $package_id
         ))->insert_id();
+
+        $event = new SysEvent();
+        $event->setUserListById($this->id);
+        $event->setTtl(Config::get('watchdog_timeout') * 2);
+        $event->sendMsgAndReboot($this->getLocalizedText('Services are updated according to the subscription. The STB will be rebooted.'));
+
+        return $return;
     }
 
     public function unsubscribeFromPackage($package_id, $packages = null, $force_no_check_billing = false){
@@ -428,17 +504,24 @@ class User implements \Stalker\Lib\StbApi\User
             }
         }
 
-        return Mysql::getInstance()->delete('user_package_subscription', array(
+        $result = Mysql::getInstance()->delete('user_package_subscription', array(
             'user_id' => $this->id,
             'package_id' => $package_id
         ))->result();
+
+        $event = new SysEvent();
+        $event->setUserListById($this->id);
+        $event->setTtl(Config::get('watchdog_timeout') * 2);
+        $event->sendMsgAndReboot($this->getLocalizedText('Services are updated according to the subscription. The STB will be rebooted.'));
+
+        return $result;
     }
 
     public function getPriceForPackage($package_id){
 
         $package = Mysql::getInstance()->from('services_package')->where(array('id' => $package_id))->get()->first();
 
-        return OssWrapper::getWrapper()->getPackagePrice($package['external_id']);
+        return OssWrapper::getWrapper()->getPackagePrice($package['external_id'], $package['id']);
     }
 
     public function getAccountInfo(){
@@ -574,6 +657,12 @@ class User implements \Stalker\Lib\StbApi\User
             unset($new_account['password']);
         }else{
             unset($new_account['password']);
+        }
+
+        if (!empty($new_account['mac'])){
+            $new_account['access_token'] = '';
+            $new_account['device_id'] = '';
+            $new_account['device_id2'] = '';
         }
 
         if (empty($new_account)){
@@ -817,7 +906,11 @@ class User implements \Stalker\Lib\StbApi\User
         }
     }
 
-    public function getPackageByServiceId($service_id){
+    public function getPackageByVideoId($video_id){
+        return $this->getPackageByServiceId($video_id, 'video');
+    }
+
+    public function getPackageByServiceId($service_id, $type){
 
         $user_packages = $this->getPackages();
 
@@ -842,7 +935,10 @@ class User implements \Stalker\Lib\StbApi\User
         return Mysql::getInstance()
             ->select('services_package.*')
             ->from('services_package')
-            ->where(array('service_id' => $service_id))
+            ->where(array(
+                'service_id'            => $service_id,
+                'services_package.type' => $type
+            ))
             ->join('service_in_package', 'services_package.id', 'package_id', 'INNER')
             ->in('services_package.id', $user_packages_ids)
             ->get()
@@ -864,7 +960,7 @@ class User implements \Stalker\Lib\StbApi\User
             ->get()
             ->first();
 
-        $package = $this->getPackageByServiceId($video_id);
+        $package = $this->getPackageByVideoId($video_id);
 
         if (empty($package)){
             return false;
@@ -875,7 +971,7 @@ class User implements \Stalker\Lib\StbApi\User
             'video_id'      => $video_id,
             'price'         => $price,
             'rent_date'     => 'NOW()',
-            'rent_end_date' => 'FROM_UNIXTIME(UNIX_TIMESTAMP(NOW())+'.($package['rent_duration']*3600).')'
+            'rent_end_date' => date('Y-m-d H:i:s', time() + $package['rent_duration']*3600)
         );
 
         $rent_history_id = Mysql::getInstance()->insert('video_rent_history', $rent_data)->insert_id();
@@ -983,15 +1079,15 @@ class User implements \Stalker\Lib\StbApi\User
 
         if ($package['type'] == 'tv'){
 
-            $services = $services->from('itv')->orderby('name')->get()->all('name');
+            $services = $services->from('itv')->where(array('status' => 1))->orderby('name')->get()->all('name');
 
         }elseif($package['type'] == 'radio'){
 
-            $services = $services->from('radio')->orderby('name')->get()->all('name');
+            $services = $services->from('radio')->where(array('status' => 1))->orderby('name')->get()->all('name');
 
         }elseif($package['type'] == 'video'){
 
-            $services = $services->from('video')->orderby(sprintf(_('video_name_format'), 'name', 'o_name'))
+            $services = $services->from('video')->where(array('status' => 1))->orderby(sprintf(_('video_name_format'), 'name', 'o_name'))
                 ->get()->all(sprintf(_('video_name_format'), 'name', 'o_name'));
 
         }else{

@@ -23,6 +23,10 @@ class RESTApiRequest extends HTTPRequest
             throw new RESTBadRequest("Empty request method");
         }
 
+        if ($this->method == 'OPTIONS'){
+            exit;
+        }
+
         if (!in_array($this->method, array('GET', 'POST', 'PUT', 'DELETE'))){
             throw new RESTNotAllowedMethod("Method not allowed");
         }
@@ -170,4 +174,8 @@ class RESTNotAcceptable extends RESTRequestException{
 
 class RESTServerError extends RESTRequestException{
     protected $code = "500 Internal Server Error";
+}
+
+class RESTTemporaryUnavailable extends RESTRequestException{
+    protected $code = "503 Service Unavailable";
 }

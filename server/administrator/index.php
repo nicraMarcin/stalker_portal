@@ -84,11 +84,11 @@ a:hover{
 <script type="text/javascript">
 
     $(function(){
-        $('.lang').click(function(e){
-            var lang = $(e.target).attr('lang');
+        $('.langs').change(function(e){
+            var lang = $('.langs option:selected').val().substr(0, 2);
             $.cookies.set('language', lang, {expiresAt: new Date( 2037, 1, 1 )});
             document.location = document.location;
-        });
+        })
     });
 
 </script>
@@ -97,7 +97,17 @@ a:hover{
 
 <body>
 <div style="width: 80%; margin:0 auto; text-align: right">
-    <a href="javascript://" class="lang" lang="en">en</a> | <a href="javascript://" class="lang" lang="ru">ru</a>
+    <select class="langs">
+        <?
+        /**
+         * @var $locale
+         * @var $allowed_locales
+         */
+        foreach ($allowed_locales as $lang => $loc){
+            echo '<option value="'.$loc.'" '.($locale == $loc ? 'selected' : '').'>'.$lang.'</option>';
+        }
+        ?>
+    </select>
 </div>
 <br>
 <br>
@@ -137,19 +147,19 @@ a:hover{
   </tr>
   
   <tr>
-    <td><div align="center"><a href="add_karaoke.php"><?= _('KARAOKE')?></a></div></td>
+    <td><div align="center"><a href="audio_album.php"><?= _('AUDIO CLUB')?></a></div></td>
     <td>&nbsp;</td>
     <td align="center"><?if (Admin::isSuperUser()){?><a href="administrators.php"><?= _('Administrators')?></a><?}?></td>
   </tr>
   
   <tr>
-    <td><div align="center"><a href="add_radio.php"><?= _('RADIO')?></a></div></td>
+    <td><div align="center"><a href="add_karaoke.php"><?= _('KARAOKE')?></a></div></td>
     <td>&nbsp;</td>
     <td align="center"><a href="logout.php">[<?echo $_SESSION['login']?>] <?= _('Logout')?></a></td>
   </tr>
   
   <tr>
-    <td><!--<div align="center"><a href="ad.php">РЕКЛАМА</a></div>--></td>
+    <td><div align="center"><a href="add_radio.php"><?= _('RADIO')?></a></div></td>
     <td>&nbsp;</td>
     <td align="center"></td>
   </tr>
@@ -173,7 +183,7 @@ function get_online_users(){
         ->from('users')
         ->count()
         ->where(array(
-            'UNIX_TIMESTAMP(keep_alive)>' => 'UNIX_TIMESTAMP(now())-'.Config::get('watchdog_timeout')*2
+            'UNIX_TIMESTAMP(keep_alive)>' => time()-Config::get('watchdog_timeout')*2
         ))
         ->get()
         ->counter();
@@ -184,7 +194,7 @@ function get_offline_users(){
         ->from('users')
         ->count()
         ->where(array(
-            'UNIX_TIMESTAMP(keep_alive)<=' => 'UNIX_TIMESTAMP(now())-'.Config::get('watchdog_timeout')*2
+            'UNIX_TIMESTAMP(keep_alive)<=' => time()-Config::get('watchdog_timeout')*2
         ))
         ->get()
         ->counter();
@@ -243,7 +253,7 @@ $cur_infoportal = get_cur_infoportal();
                 ->where(array(
                     'now_playing_type' => 2,
                     'storage_name'     => $storage_name,
-                    'UNIX_TIMESTAMP(keep_alive)>' => 'UNIX_TIMESTAMP(NOW())-'.Config::get('watchdog_timeout')*2
+                    'UNIX_TIMESTAMP(keep_alive)>' => time() - Config::get('watchdog_timeout')*2
                 ))
                 ->get()
                 ->counter();
@@ -257,10 +267,10 @@ $cur_infoportal = get_cur_infoportal();
         </table>
         </td>
     </tr>
-    <!--<tr>
-        <td class="td_stat"><?/*= _('audioclub')*/?>:</td>
-        <td class="td_stat"><?/* echo $cur_aclub */?></td>
-    </tr>-->
+    <tr>
+        <td class="td_stat"><?= _('audioclub')?>:</td>
+        <td class="td_stat"><? echo $cur_aclub?></td>
+    </tr>
     <tr>
         <td class="td_stat"><?= _('karaoke')?>:</td>
         <td class="td_stat"><? echo $cur_karaoke ?></td>
@@ -302,7 +312,7 @@ $cur_infoportal = get_cur_infoportal();
                 ->where(array(
                     'now_playing_type' => 11,
                     'storage_name'     => $storage_name,
-                    'UNIX_TIMESTAMP(keep_alive)>' => 'UNIX_TIMESTAMP(NOW())-'.Config::get('watchdog_timeout')*2
+                    'UNIX_TIMESTAMP(keep_alive)>' => time() - Config::get('watchdog_timeout')*2
                 ))
                 ->get()
                 ->counter();
@@ -335,14 +345,14 @@ $cur_infoportal = get_cur_infoportal();
                         ->where(array(
                             'now_playing_type' => 14,
                             'storage_name'     => $storage_name,
-                            'UNIX_TIMESTAMP(keep_alive)>' => 'UNIX_TIMESTAMP(NOW())-'.Config::get('watchdog_timeout')*2
+                            'UNIX_TIMESTAMP(keep_alive)>' => time() - Config::get('watchdog_timeout')*2
                         ))
                         ->get()
                         ->counter();
 
                     echo '<tr>';
                     echo '<td class="td_stat" width="80"><b>'.$storage_name.'</b>:</td>';
-                    echo '<td class="td_stat"><a href="users_on_storage.php?storage='.$storage_name.'&type=11   " style="color:black">'.$counter.'</a></td>';
+                    echo '<td class="td_stat"><a href="users_on_storage.php?storage='.$storage_name.'&type=14   " style="color:black">'.$counter.'</a></td>';
                     echo '</tr>';
                 }
                 ?>
@@ -369,7 +379,7 @@ $cur_infoportal = get_cur_infoportal();
                 return $sessions + $streamer['sessions'];
             }, 0);
             ?>
-            <td class="td_stat">сервера вещания:</td>
+            <td class="td_stat"><?= mb_strtolower(_('Stream servers'), 'UTF-8')?>:</td>
             <td class="td_stat"><? echo $streamer_sessions ?></td>
         </tr>
 
@@ -396,7 +406,7 @@ $cur_infoportal = get_cur_infoportal();
 </td>
 <td class="other" width="100">
 <form action="users.php" method="GET">
-<input type="text" name="search" value=""><input type="submit" value="<?= _('Search')?>"><br><font color="Gray"><?= _('search by MAC or IP')?></font>
+<input type="text" name="search" value=""><input type="submit" value="<?= htmlspecialchars(_('Search'), ENT_QUOTES)?>"><br><font color="Gray"><?= _('search by MAC or IP')?></font>
 </form>
 </td>
 
@@ -477,6 +487,11 @@ $cur_infoportal = get_cur_infoportal();
     <td width="47%" align="center"><? if (Admin::isAccessAllowed('epg_setting')){?><a href="epg_setting.php">EPG</a><?}?></td>
     <td width="6%">&nbsp;</td>
     <td width="47%" align="center"><? if (Admin::isAccessAllowed('stream_servers')){?><a href="stream_servers.php"><?= _('Stream servers')?></a><?}?></td>
+  </tr>
+  <tr>
+    <td width="47%" align="center"><? if (Admin::isAccessAllowed('themes')){?><a href="themes.php"><?= _('Templates')?></a><?}?></td>
+    <td width="6%">&nbsp;</td>
+    <td width="47%" align="center">&nbsp;</td>
   </tr>
 </table>
 </body>

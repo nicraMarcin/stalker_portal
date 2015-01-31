@@ -118,14 +118,26 @@
             }
         };
         
-        this.show = function(){
-            _debug('epg.show');
+        this.show = function(do_not_load, player_overlay_mode){
+            _debug('epg.show', do_not_load, player_overlay_mode);
             
             this.cur_page = 0;
             
             this.parent.on = false;
             
             this.set_date_period();
+
+            this.player_overlay_mode = player_overlay_mode;
+
+            if (player_overlay_mode){
+                this.dom_obj.style.background = 'none';
+                this.color_buttons.buttons_bar.hide();
+                this.header_path.hide();
+            }else{
+                this.dom_obj.style.background = '';
+                this.color_buttons.buttons_bar.show();
+                this.header_path.show();
+            }
             
             this.superclass.show.call(this, false);
         };
@@ -136,6 +148,9 @@
             this.superclass.hide.call(this, do_not_reset);
             
             this.live_line.stop();
+
+            this.program_info.innerHTML = '';
+            this.on_date.innerHTML = '';
         };
         
         this.init = function(){
@@ -187,16 +202,20 @@
                 }
 
                 this.hide();
-                this.parent.hide();
+                if (!this.player_overlay_mode){
+                    this.parent.hide();
+                }
                 main_menu.show();
             }).bind(key.MENU, this);
             
             (function(){
 
                 if (!this.active_row['epg_cell'][this.cur_cell_col]){
-                    this.parent.load_params['from_ch_id'] = this.data_items[this.cur_row].ch_id;
-                    this.parent.data_items[this.parent.cur_row].id = 0;
-                    this.parent.show(true);
+                    if (!this.player_overlay_mode){
+                        this.parent.load_params['from_ch_id'] = this.data_items[this.cur_row].ch_id;
+                        this.parent.data_items[this.parent.cur_row].id = 0;
+                        this.parent.show(true);
+                    }
                     this.hide();
                     return;
                 }
@@ -216,9 +235,11 @@
 
                     if (now > this.active_row['epg_cell'][this.cur_cell_col].data.start_timestamp && now < this.active_row['epg_cell'][this.cur_cell_col].data.stop_timestamp){
 
-                        this.parent.load_params['from_ch_id'] = this.data_items[this.cur_row].ch_id;
-                        this.parent.data_items[this.parent.cur_row].id = 0;
-                        this.parent.show(true);
+                        if (!this.player_overlay_mode){
+                            this.parent.load_params['from_ch_id'] = this.data_items[this.cur_row].ch_id;
+                            this.parent.data_items[this.parent.cur_row].id = 0;
+                            this.parent.show(true);
+                        }
                         this.hide();
                     }
                 }
@@ -226,9 +247,10 @@
 
 
             (function(){
-                this.parent.load_params['from_ch_id'] = this.data_items[this.cur_row].ch_id;
-                //this.parent.show(true);
-                this.parent._show.call(this.parent, this.parent.genre);
+                if (!this.player_overlay_mode){
+                    this.parent.load_params['from_ch_id'] = this.data_items[this.cur_row].ch_id;
+                    this.parent._show.call(this.parent, this.parent.genre);
+                }
                 this.hide();
             }).bind(key.EXIT, this);
             
@@ -237,6 +259,28 @@
             
             this.horizontal_cell_shift.bind(key.RIGHT, this, 1);
             this.horizontal_cell_shift.bind(key.LEFT, this, -1);
+
+            (function(){})
+                .bind(key.CHANNEL_NEXT, this)
+                .bind(key.CHANNEL_PREV, this)
+                .bind(key.FFWD, this)
+                .bind(key.REW, this)
+                .bind(key.REC, this)
+                .bind(key.PAUSE, this)
+                .bind(key.BACK, this)
+                .bind(key.APP, this)
+                .bind(key.AUDIO, this)
+                .bind(key.NUM0, this)
+                .bind(key.NUM1, this)
+                .bind(key.NUM2, this)
+                .bind(key.NUM3, this)
+                .bind(key.NUM4, this)
+                .bind(key.NUM5, this)
+                .bind(key.NUM6, this)
+                .bind(key.NUM7, this)
+                .bind(key.NUM8, this)
+                .bind(key.NUM9, this)
+                .bind(key.INFO, this);
         };
 
         this.play = function(rec_id){
@@ -315,13 +359,15 @@
             var date_from = new Date(year, month, day, hours, minutes);
             var from = date_from.getFullYear()+'-'+this.format_date(date_from.getMonth()+1)+'-'+this.format_date(date_from.getDate())+' '+this.format_date(date_from.getHours())+':'+this.format_date(date_from.getMinutes())+':00';
             _debug('from', from);
+            this.load_params['from_ts'] = date_from.getTime();
             this.load_params['from'] = from;
-            
+
             var date_to = new Date(year, month, day, hours, minutes+90);
             var to = date_to.getFullYear()+'-'+this.format_date(date_to.getMonth()+1)+'-'+this.format_date(date_to.getDate())+' '+this.format_date(date_to.getHours())+':'+this.format_date(date_to.getMinutes())+':00';
             _debug('to', to);
+            this.load_params['to_ts'] = date_to.getTime();
             this.load_params['to'] = to;
-            
+
         };
         
         this.load_data = function(){
@@ -340,9 +386,27 @@
             
             this.superclass.load_data.call(this);
         };
+
+        this.fill_dvb_epg = function(data){
+            _debug('epg.fill_dvb_epg');
+
+            if (!module.dvb){
+                return data;
+            }
+
+            for (var i=0; i<data.length; i++){
+                if(data[i].ch_type == 'dvb'){
+                    data[i].epg = module.dvb.get_epg_for_table(data[i].dvb_id, this.load_params['from_ts']/1000, this.load_params['to_ts']/1000);
+                }
+            }
+
+            return data;
+        };
         
         this.fill_list = function(data){
             _debug('epg.fill_list');
+
+            data = this.fill_dvb_epg(data);
             
             this.superclass.fill_list.call(this, data);
             
@@ -382,13 +446,12 @@
             
             this.active_row.row.setAttribute('active', 'active');
             
-            //this.set_passive_cell();
-            
-            //this.superclass.set_active_row.call(this, num);
-            //this.post_handling_epg_block(this.active_row, this.data_items[num].epg, true)
-            
             this.ch_id   = this.data_items[num].ch_id;
             this.channel = stb.player.channels[stb.player.channels.getIdxById(this.ch_id)];
+
+            if (!this.channel){
+                this.channel = module.tv.data_items[module.tv.data_items.getIdxById(this.ch_id)];
+            }
 
             this.set_active_cell();
         };
@@ -565,7 +628,7 @@
                 this.cur_cell_col = this.active_row['epg_cell'].length - 1;
             }else{
                 
-                if (empty(this.active_row['epg_cell'][this.cur_cell_col])){
+                if (this.active_row['epg_cell'] && empty(this.active_row['epg_cell'][this.cur_cell_col])){
                     this.cur_cell_col = this.active_row['epg_cell'].length - 1;
                 }
             }

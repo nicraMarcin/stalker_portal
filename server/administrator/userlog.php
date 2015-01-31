@@ -223,14 +223,14 @@ function parse_param($action, $param, $type){
                 if (!empty($channel)){
                     $ch_name = $channel['name'];
                 }else{
-                    $ch_name = $param;
+                    $ch_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Channel').'] '.$ch_name;
                 break;
             case 2: // Video Club
 
-                if (!preg_match("/(\d+)\.[a-z]*$/", $param, $tmp_arr)){
+                if (!preg_match("/(\d+)\.[a-z0-9]*$/", $param, $tmp_arr)){
                     $name = $param;
                     break;
                 }
@@ -242,7 +242,7 @@ function parse_param($action, $param, $type){
                 if (!empty($video)){
                     $video_name = $video['name'];
                 }else{
-                    $video_name = $param;
+                    $video_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Video').'] '.$video_name;
@@ -257,7 +257,7 @@ function parse_param($action, $param, $type){
                 if (!empty($karaoke)){
                     $karaoke_name = $karaoke['name'];
                 }else{
-                    $karaoke_name = $param;
+                    $karaoke_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Karaoke').'] '.$karaoke_name;
@@ -272,7 +272,7 @@ function parse_param($action, $param, $type){
                 if (!empty($audio)){
                     $audio_name = $audio['name'];
                 }else{
-                    $audio_name = $param;
+                    $audio_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Audio').'] '.$audio_name;
@@ -284,7 +284,7 @@ function parse_param($action, $param, $type){
                 if (empty($radio)){
                     $ch_name = $radio['name'];
                 }else{
-                    $ch_name = $param;
+                    $ch_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Radio').'] '.$ch_name;
@@ -307,7 +307,7 @@ function parse_param($action, $param, $type){
                 if (!empty($record)){
                     $my_record_name = $record['t_start'].' '.$record['name'];
                 }else{
-                    $my_record_name = $param;
+                    $my_record_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('My records').'] '.$my_record_name;
@@ -327,7 +327,7 @@ function parse_param($action, $param, $type){
                 if (!empty($record)){
                     $shared_record_name = $record['descr'];
                 }else{
-                    $shared_record_name = $param;
+                    $shared_record_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Records').'] '.$shared_record_name;
@@ -342,7 +342,7 @@ function parse_param($action, $param, $type){
                 if (!empty($video)){
                     $video_name = $video['name'];
                 }else{
-                    $video_name = $param;
+                    $video_name = htmlspecialchars($param);
                 }
                 
                 $name = '['._('Clip').'] '.$video_name;
@@ -356,7 +356,7 @@ function parse_param($action, $param, $type){
         if($param == '""'){
             $name = '';
         }else{
-            $name = $param;
+            $name = htmlspecialchars($param);
         }
     }
     return $name;
@@ -392,7 +392,7 @@ function load_log(){
         <select name="dd" id="dd">
             <? echo construct_DD()?>
         </select>
-        &nbsp;<input type="button" value="<?= _('Go')?>" onclick="load_log()">
+        &nbsp;<input type="button" value="<?= htmlspecialchars(_('Go'), ENT_QUOTES)?>" onclick="load_log()">
         <td>
     </tr>
 </table>

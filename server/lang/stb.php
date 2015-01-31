@@ -14,6 +14,7 @@ $words['weather_wind'] = _('Wind');
 $words['weather_speed'] = _('m/s');
 $words['weather_humidity'] = _('Humidity');
 $words['current_weather_unavailable'] = _('Current weather unavailable');
+$words['current_weather_not_configured'] = _('The weather is not configured');
 
 // karaoke
 $words['karaoke_view'] = _('VIEW');
@@ -84,6 +85,7 @@ $words['tv_title'] = _('TV');
 // vclub info
 $words['vclub_info'] = _('information about the movie');
 $words['vclub_year'] = _('Year');
+$words['vclub_country'] = _('Country');
 $words['vclub_genre'] = _('Genre');
 $words['vclub_length'] = _('Length');
 $words['vclub_minutes'] = _('min');
@@ -310,6 +312,7 @@ $words['coming_soon']        = _('Coming soon');
 
 $words['account_info']      = _('INFORMATION');
 $words['account_payment']   = _('PAYMENT');
+$words['account_pay']       = _('PAY');
 $words['account_agreement'] = _('AGREEMENT');
 $words['account_terms']     = _('TERMS OF USE');
 
@@ -417,13 +420,14 @@ $words['wrong epg'] = _('wrong epg');
 $words['iso_title'] = _('Part');
 
 $words['error_channel_nothing_to_play'] = _('Channel not available');
-$words['error_channel_limit'] = _('Channel temporary available');
+$words['error_channel_limit'] = _('Channel temporary unavailable');
 $words['error_channel_not_available_for_zone'] = _('Channel not available for this region');
 $words['error_channel_link_fault'] = _('Channel not available. Server error.');
 $words['error_channel_access_denied'] = _('Access denied');
 
 $words['blocking_account_info'] = _('Account info');
 $words['blocking_account_payment'] = _('Payment');
+$words['blocking_account_reboot'] = _('Reload portal');
 
 $words['archive_continue_playing_text'] = _('Continue playing?');
 $words['archive_yes'] = _('YES');
@@ -497,3 +501,48 @@ $words['mount_failed'] = _('Mount failed');
 
 $words['ad_skip'] = _('SKIP');
 $words['commercial'] = _('COMMERCIAL');
+
+//Clock On Video by Agnitumus
+$words['videoClockTitle'] =      _('Clock');
+$words['videoClock_off'] =       _('Hidden');
+$words['videoClock_upRight'] =   _('Top Right');
+$words['videoClock_upLeft'] =    _('Top Left');
+$words['videoClock_downRight'] = _('Bottom Right');
+$words['videoClock_downLeft'] =  _('Bottom Left');
+//End Clock On Video
+
+$words['settings_unavailable'] = _('Settings section is currently unavailable');
+
+$words['no_dvb_channels_title'] = _('No channels available');
+$words['go_to_dvb_settings'] = _('You can configure DVB channels in the settings menu');
+
+$words['apps_title'] = _('Applications');
+
+$words['coming_soon_video'] = _('Video will be available soon');
+
+$words['app_install_confirm'] = _('Install application?');
+
+$words['audioclub_title'] = _('AUDIO CLUB');
+$words['track_search'] = _('TRACK SEARCH');
+$words['album_search'] = _('ALBUM SEARCH');
+$words['add_to_playlist'] = _('ADD TO PLAYLIST');
+$words['remove_from_playlist'] = _('DEL FROM PLAYLIST');
+$words['playlist'] = _('PLAYLIST');
+$words['audioclub_year'] = _('Year');
+$words['audioclub_country'] = _('Country');
+$words['audioclub_languages'] = _('Language');
+$words['audioclub_language'] = _('Language');
+$words['audioclub_performer'] = _('Artist');
+$words['audioclub_album'] = _('Album');
+$words['audioclub_tracks'] = _('Compositions');
+
+$words['audioclub_select_playlist'] = _('Playlist select');
+$words['audioclub_playlist'] = _('Playlist');
+$words['new_btn'] = _('NEW');
+$words['playlist_name'] = _('Name');
+$words['audioclub_new_playlist'] = _('New Playlist');
+$words['audioclub_saving_error'] = _('Error while saving');
+$words['audioclub_create_new'] = _('CREATE NEW');
+$words['remove_from_playlist_confirm'] = _('Do you really want to delete this track from playlist?');
+$words['delete_playlist_confirm'] = _('Do you really want to delete this playlist?');
+$words['audioclub_remove_playlist'] = _('DELETE');

@@ -48,6 +48,9 @@ _('aerobics');
 _('fantasy');
 _('erotica');
 _('humourist');
+_('foreign cartoons');
+_('our cartoons');
+_('cartoon series');
 
 /**
  * media_category table
@@ -72,6 +75,7 @@ _('Historical');
 _('Clips');
 _('Comedy');
 _('Melodrama');
+_('Romantic');
 _('Humour');
 _('Adventures');
 _('Thriller');
@@ -106,6 +110,45 @@ _('religion');
 _('social');
 _("woman's");
 _('scientific-entertainment');
+
+/**
+ * audio_genres table
+ */
+
+_('Alternative Rock');
+_('Blues');
+_('Children\'s Music');
+_('Jazz');
+_('Disco');
+_('Indie');
+_('Country');
+_('Classical');
+_('Latin Music');
+_('Easy Listening');
+_('Metal');
+_('Hillbilly music');
+_('Pop');
+_('Oldies');
+_('Rock');
+_('Adult Contemporary');
+_('Soul and R&B');
+_('Themes music');
+_('Hip Hop');
+_('Electronic');
+
+/**
+ * audio_years table
+ */
+
+_('1920s and earlier');
+_('1930s');
+_('1940s');
+_('1950s');
+_('1960s');
+_('1970s');
+_('1980s');
+_('1990s');
+_('2000s');
 
 /**
  * karaoke_genre table
@@ -155,5 +198,7 @@ _('Tariff plan is changed, please restart your STB');
 _('Starting recording');
 _('Stopped recording');
 _('on channel');
+_('Services are updated according to the subscription. The STB will be rebooted.');
 
 _('Firmware of your STB is outdated.<br>Please update it.');
+_('Your STB is damaged.<br/> Call the provider.');

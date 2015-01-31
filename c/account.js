@@ -9,6 +9,7 @@
         this.layer_name = 'account';
         this.tab        = {};
         this.cur_tab    = 'main';
+        this.account_data = {};
 
         this.superclass = SimpleLayer.prototype;
 
@@ -28,7 +29,20 @@
                     "action" : "get_main_info"
                 },
                 function(result){
+                    this.account_data = result;
                     this.fill_main_info(result);
+
+                    if (this.account_data['account_payment_info']){
+                        this.tab['payment'].content.dom_obj.innerHTML = this.account_data['account_payment_info'];
+                    }
+
+                    if (this.account_data['account_agreement_info']){
+                        this.tab['agreement'].content.dom_obj.innerHTML = this.account_data['account_agreement_info'];
+                    }
+
+                    if (this.account_data['account_terms_info']){
+                        this.tab['terms'].content.dom_obj.innerHTML = this.account_data['account_terms_info'];
+                    }
                 },
                 this
             );
@@ -45,7 +59,9 @@
                     "action" : "get_payment_info"
                 },
                 function(result){
-                    this.tab['payment'].content.dom_obj.innerHTML = result;
+                    if (!this.account_data['account_payment_info']){
+                        this.tab['payment'].content.dom_obj.innerHTML = result;
+                    }
                 },
                 this
             );
@@ -61,7 +77,9 @@
                     "action" : "get_agreement_info"
                 },
                 function(result){
-                    this.tab['agreement'].content.dom_obj.innerHTML = result;
+                    if (!this.account_data['account_agreement_info']){
+                        this.tab['agreement'].content.dom_obj.innerHTML = result;
+                    }
                 },
                 this
             );
@@ -77,7 +95,9 @@
                     "action" : "get_terms_info"
                 },
                 function(result){
-                    this.tab['terms'].content.dom_obj.innerHTML = result;
+                    if (!this.account_data['account_terms_info']){
+                        this.tab['terms'].content.dom_obj.innerHTML = result;
+                    }
                 },
                 this
             );
@@ -93,7 +113,12 @@
                 module.account.cur_tab = 'payment';
                 module.account.update_header_path([{"alias" : "tab", "item" : word['account_payment']}]);
                 module.account.color_buttons.get('red').enable();
-                module.account.color_buttons.get('green').disable();
+                if (stb.profile['external_payment_page_url']){
+                    module.account.color_buttons.get('green').enable();
+                    module.account.color_buttons.get('green').setText(get_word('account_pay'));
+                }else{
+                    module.account.color_buttons.get('green').disable();
+                }
                 module.account.color_buttons.get('yellow').enable();
                 module.account.color_buttons.get('blue').enable();
 
@@ -106,13 +131,52 @@
                 module.account.show(module.blocking);
             }).bind(key.INFO, module.blocking).bind(key.YELLOW, module.blocking);
 
-            var blocking_buttons = create_block_element('blocking_buttons', module.blocking.dom_obj);
+            var blocking_account_payment = create_block_element('blocking_account_info', module.blocking.blocking_buttons);
+            blocking_account_payment.innerHTML = '<div class="color_btn yellow"></div> '+get_word('blocking_account_info');
 
-            var blocking_account_info = create_block_element('blocking_account_info', blocking_buttons);
+            var blocking_account_info = create_block_element('blocking_account_payment', module.blocking.blocking_buttons);
             blocking_account_info.innerHTML = '<div class="color_btn blue"></div> '+get_word('blocking_account_payment');
 
-            var blocking_account_payment = create_block_element('blocking_account_payment', blocking_buttons);
-            blocking_account_payment.innerHTML = '<div class="color_btn yellow"></div> '+get_word('blocking_account_info');
+            var scope = this;
+
+            this.parent_password_promt = new ModalForm({"title" : get_word('parent_password_title'), "parent" : main_menu});
+            this.parent_password_promt.enableOnExitClose();
+
+            this.parent_password_promt.addItem(new ModalFormInput({
+                "label" : get_word('password_label'),
+                "name" : "parent_password",
+                "type" : "password",
+                "onchange" : function(){_debug('change'); scope.parent_password_promt.resetStatus()}
+            }));
+
+            this.parent_password_promt.addItem(new ModalFormButton(
+                {
+                    "value" : get_word("ok_btn"),
+                    "onclick" : function(){
+
+                        var parent_password = scope.parent_password_promt.getItemByName('parent_password').getValue();
+
+                        _debug('parent_password', parent_password);
+                        _debug('stb.user.parent_password', stb.user.parent_password);
+
+                        if (parent_password == stb.user.parent_password){
+                            scope.parent_password_promt.hide();
+                            scope.parent_password_promt.callback && scope.parent_password_promt.callback();
+                        }else{
+                            scope.parent_password_promt.setStatus(get_word('parent_password_error'));
+                        }
+                    }
+                }
+            ));
+
+            this.parent_password_promt.addItem(new ModalFormButton(
+                {
+                    "value" : get_word("cancel_btn"),
+                    "onclick" : function(){
+                        scope.parent_password_promt.hide();
+                    }
+                }
+            ));
         };
 
         this.show = function(return_layer){
@@ -135,7 +199,20 @@
                     "action" : "get_main_info"
                 },
                 function(result){
+                    this.account_data = result;
                     this.fill_main_info(result);
+
+                    if (this.account_data['account_payment_info']){
+                        this.tab['payment'].content.dom_obj.innerHTML = this.account_data['account_payment_info'];
+                    }
+
+                    if (this.account_data['account_agreement_info']){
+                        this.tab['agreement'].content.dom_obj.innerHTML = this.account_data['account_agreement_info'];
+                    }
+
+                    if (this.account_data['account_terms_info']){
+                        this.tab['terms'].content.dom_obj.innerHTML = this.account_data['account_terms_info'];
+                    }
                 },
                 this
             );
@@ -278,17 +355,60 @@
             this.update_header_path([{"alias" : "tab", "item" : word['account_info']}]);
             this.color_buttons.get('red').disable();
             this.color_buttons.get('green').enable();
+            this.color_buttons.get('green').setText(get_word('account_payment'));
             this.color_buttons.get('yellow').enable();
             this.color_buttons.get('blue').enable();
         }},
         {"label" : word['account_payment'], "cmd" : function(){
-            account.tab['payment'].show();
-            account.cur_tab = 'payment';
-            this.update_header_path([{"alias" : "tab", "item" : word['account_payment']}]);
-            this.color_buttons.get('red').enable();
-            this.color_buttons.get('green').disable();
-            this.color_buttons.get('yellow').enable();
-            this.color_buttons.get('blue').enable();
+
+            if (stb.profile['external_payment_page_url'] && !account.tab['payment'].dom_obj.isHidden()){
+                _debug('stb.profile[external_payment_page_url]', stb.profile['external_payment_page_url']);
+
+                if (!module.internet || !module.internet.win_inited){
+                    if (stbWindowMgr.InitWebWindow){
+                        stbWindowMgr.InitWebWindow(
+                            '/home/web/public/app/bookmarks/header.html',
+                            '/home/web/public/app/bookmarks/footer.html');
+                    }
+                }
+
+                if (stbWindowMgr.openWebFace){
+                    stbWindowMgr.openWebFace('/home/web/public/app/ibman/index.html?mode=2&url='+encodeURIComponent(stb.profile['external_payment_page_url']));
+                    if (module.internet){
+                        module.internet.win_inited = true;
+                    }
+                }else{
+                    if (stbWindowMgr.InitWebWindow){
+                        stbWindowMgr.LoadUrl(stb.profile['external_payment_page_url']);
+                        stbWindowMgr.raiseWebWindow();
+                    }else{
+                        stbWindowMgr.openWebWindow(stb.profile['external_payment_page_url']);
+                    }
+
+                    if (module.internet){
+                        module.internet.win_inited = true;
+                    }
+                }
+
+            }else{
+
+                account.tab['payment'].show();
+                account.cur_tab = 'payment';
+                this.update_header_path([{"alias" : "tab", "item" : word['account_payment']}]);
+                this.color_buttons.get('red').enable();
+                if (stb.profile['external_payment_page_url']){
+                    this.color_buttons.get('green').enable();
+                }else{
+                    this.color_buttons.get('green').disable();
+                }
+                this.color_buttons.get('yellow').enable();
+                this.color_buttons.get('blue').enable();
+            }
+
+            if (stb.profile['external_payment_page_url']){
+                this.color_buttons.get('green').setText(get_word('account_pay'));
+            }
+
         }},
         {"label" : word['account_agreement'], "cmd" : function(){
             account.tab['agreement'].show();
@@ -296,6 +416,7 @@
             this.update_header_path([{"alias" : "tab", "item" : word['account_agreement']}]);
             this.color_buttons.get('red').enable();
             this.color_buttons.get('green').enable();
+            this.color_buttons.get('green').setText(get_word('account_payment'));
             this.color_buttons.get('yellow').disable();
             this.color_buttons.get('blue').enable();
         }},
@@ -305,6 +426,7 @@
             this.update_header_path([{"alias" : "tab", "item" : word['account_terms']}]);
             this.color_buttons.get('red').enable();
             this.color_buttons.get('green').enable();
+            this.color_buttons.get('green').setText(get_word('account_payment'));
             this.color_buttons.get('yellow').enable();
             this.color_buttons.get('blue').disable();
         }}
@@ -327,8 +449,19 @@
     module.account_menu.push({
         "title" : get_word('account_info'),
         "cmd"   : function(){
-            main_menu.hide();
-            module.account.show();
+
+            _debug('stb.profile[account_page_by_password]', stb.profile['account_page_by_password']);
+
+            if (stb.profile['account_page_by_password']){
+                module.account.parent_password_promt.callback = function(){
+                    main_menu.hide();
+                    module.account.show();
+                };
+                module.account.parent_password_promt.show();
+            }else{
+                main_menu.hide();
+                module.account.show();
+            }
         }
     })
     

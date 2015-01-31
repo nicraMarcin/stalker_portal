@@ -4,7 +4,19 @@
 
 (function(){
 
-    if (typeof(pvrManager) == "undefined"){
+    if (typeof(pvrManager) === "undefined"){
+        _debug('pvrManager not found');
+        return;
+    }
+
+    var allow_local_recording = stb.user['allowed_stb_types_for_local_recording'].some(function(element){
+        return stb.type.toLowerCase().indexOf(element) != -1;
+    });
+
+    _debug('allow_local_recording', allow_local_recording);
+
+    if (!allow_local_recording){
+        _debug('local pvr not allowed for ' + stb.type);
         return;
     }
 
@@ -613,7 +625,8 @@
     module.pvr_local = new PvrLocal();
 
     if (typeof(pvrManager) != "undefined"){
-        pvrManager.SetMaxRecordingCnt(10);
+        _debug('stb.user[max_local_recordings]', stb.user['max_local_recordings']);
+        pvrManager.SetMaxRecordingCnt(parseInt(stb.user['max_local_recordings'], 10));
         var active_tasks = JSON.parse(pvrManager.GetAllTasks()) || [];
     }else{
         active_tasks = [];

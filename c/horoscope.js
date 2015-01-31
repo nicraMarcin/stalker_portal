@@ -8,7 +8,7 @@
         
         this.layer_name = 'horoscope';
         
-        this.dom_obj = this.create_block('layer_bg');
+        this.dom_obj = this.create_block();
         document.body.appendChild(this.dom_obj);
         
         this.superclass = BaseLayer.prototype;
@@ -25,6 +25,8 @@
         this.info_on = false;
         
         this.init = function(){
+
+            this.superclass.init.call(this);
             
             var container = create_block_element('', this.dom_obj);
             
@@ -38,7 +40,7 @@
             
             for (var i=0; i<=2; i++){
                 var li = document.createElement('li');
-                li.style.background = 'url(i'+resolution_prefix+'/horoscope_menu_button_1_' + (i+1) + '_a.png)';
+                li.style.background = 'url(template/'+loader.template+'/i'+resolution_prefix+'/horoscope_menu_button_1_' + (i+1) + '_a.png)';
                 menu.appendChild(li);
                 this.menu_map.push(li);
             }
@@ -130,9 +132,9 @@
                     letter = 'b';
                 }
                 
-                _debug('url(i'+ resolution_prefix +'/horoscope_menu_button_1_' + this.items_map[i] + '_' + letter +'.png)');
+                _debug('url(template/'+loader.template+'/i'+ resolution_prefix +'/horoscope_menu_button_1_' + this.items_map[i] + '_' + letter +'.png)');
                 
-                this.menu_map[i].style.background = 'url(i' + resolution_prefix + '/horoscope_menu_button_1_' + this.items_map[i] + '_' + letter +'.png)';
+                this.menu_map[i].style.background = 'url(template/'+loader.template+'/i' + resolution_prefix + '/horoscope_menu_button_1_' + this.items_map[i] + '_' + letter +'.png)';
             }
         };
         

@@ -4,10 +4,13 @@ $_SERVER['TARGET'] = 'ADM';
 
 include "../common.php";
 
-$locales = array(
-    'en' => 'en_GB.utf8',
-    'ru' => 'ru_RU.utf8'
-);
+$locales = array();
+
+$allowed_locales = Config::get("allowed_locales");
+
+foreach ($allowed_locales as $lang => $locale){
+    $locales[substr($locale, 0, 2)] = $locale;
+}
 
 $accept_language = !empty($_SERVER["HTTP_ACCEPT_LANGUAGE"]) ? $_SERVER["HTTP_ACCEPT_LANGUAGE"] : null;
 
@@ -21,9 +24,8 @@ if (!empty($_COOKIE['language']) && array_key_exists($_COOKIE['language'], $loca
 
 setcookie("debug_key", "", time() - 3600, "/");
 
-//$locale = 'en_GB.utf8';
-
 setlocale(LC_MESSAGES, $locale);
+setlocale(LC_TIME, $locale);
 putenv('LC_MESSAGES='.$locale);
 bindtextdomain('stb', PROJECT_PATH.'/locale');
 textdomain('stb');

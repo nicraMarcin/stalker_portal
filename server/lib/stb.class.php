@@ -21,7 +21,9 @@ class Stb implements \Stalker\Lib\StbApi\Stb
     public $lang;
     private $locale;
     private $country_id;
+    private $openweathermap_country_id;
     public $city_id;
+    public $openweathermap_city_id;
     public $timezone;
     public static $server_timezone;
     public $timezone_diff = 0;
@@ -58,14 +60,18 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         $this->user_agent = empty($_SERVER['HTTP_USER_AGENT']) ? '' : $_SERVER['HTTP_USER_AGENT'];
 
+        if (!empty($_SERVER['HTTP_X_USER_AGENT'])){
+            $this->user_agent .= '; '.$_SERVER['HTTP_X_USER_AGENT'];
+        }
+
         $this->parseAuthorizationHeader();
 
         if (!empty($debug_key) && $this->checkDebugKey($debug_key)){
 
             if (!empty($_REQUEST['mac'])){
-                $this->mac = @trim(urldecode($_REQUEST['mac']));
+                $this->mac = @htmlspecialchars(trim(urldecode($_REQUEST['mac'])));
             }elseif (!empty($_COOKIE['mac'])){
-                $this->mac = @trim(urldecode($_COOKIE['mac']));
+                $this->mac = @htmlspecialchars(trim(urldecode($_COOKIE['mac'])));
             }else{
                 echo 'Identification failed';
                 exit;
@@ -76,7 +82,7 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             }
 
         }else if (!empty($_COOKIE['mac']) && empty($_COOKIE['mac_emu'])){
-            $this->mac = @trim(urldecode($_COOKIE['mac']));
+            $this->mac = @htmlspecialchars(trim(urldecode($_COOKIE['mac'])));
 
             if (!empty($_GET['action']) && $_GET['action'] != 'handshake' && $_GET['action'] != 'get_profile' && $_GET['action'] != 'get_localization' && $_GET['action'] != 'do_auth' && !$this->isValidAccessToken($this->access_token)){
                 error_log("STB authorization failed. MAC: ".$this->mac.", token: ".$this->access_token);
@@ -111,7 +117,12 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         }
         
         $this->db = Mysql::getInstance();
-        $this->getStbParams();
+        try{
+            $this->getStbParams();
+        }catch (MysqlException $e){
+            echo $e->getMessage().PHP_EOL;
+            return;
+        }
 
         if (empty($this->id)){
             $this->initLocale($this->stb_lang);
@@ -165,6 +176,10 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         return $this->user_agent;
     }
 
+    public function getStbLanguage(){
+        return $this->stb_lang;
+    }
+
     public function setParam($key, $value){
 
         if (!array_key_exists($key, $this->params)){
@@ -205,9 +220,21 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
             $this->locale     = (empty($user['locale']) && Config::exist('default_locale')) ? Config::get('default_locale') : $user['locale'];
 
-            $this->city_id    = (empty($user['city_id']) && Config::exist('default_city_id')) ? Config::get('default_city_id') : intval($user['city_id']);
+            if (Config::getSafe('default_city_id', 0) == 0 && $user['city_id'] == 0){
+                $this->city_id = 0;
+            }else{
+                $this->city_id = (empty($user['city_id']) && Config::exist('default_city_id')) ? Config::get('default_city_id') : intval($user['city_id']);
+            }
 
-            $this->country_id = intval(Mysql::getInstance()->from('cities')->where(array('id' => $this->city_id))->get()->first('country_id'));
+            if (Config::getSafe('default_openweathermap_city_id', 0) == 0 && $user['openweathermap_city_id'] == 0){
+                $this->openweathermap_city_id = 0;
+            }else{
+                $this->openweathermap_city_id = (empty($user['openweathermap_city_id']) && Config::exist('default_openweathermap_city_id')) ? Config::get('default_openweathermap_city_id') : intval($user['openweathermap_city_id']);
+            }
+
+            $this->country_id = !$this->city_id ? 0 : intval(Mysql::getInstance()->from('cities')->where(array('id' => $this->city_id))->get()->first('country_id'));
+
+            $this->openweathermap_country_id = !$this->openweathermap_city_id ? 0 : intval(Mysql::getInstance()->from('all_cities')->where(array('id' => $this->openweathermap_city_id))->get()->first('country_id'));
 
             $this->timezone   = (empty($this->timezone) && Config::exist('default_timezone')) ? Config::get('default_timezone') : $this->timezone;
 
@@ -228,6 +255,10 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             Mysql::getInstance()->set_timezone($offset);
 
             $this->additional_services_on = $user['additional_services_on'];
+
+            if (!empty($user['country'])){
+                $this->user_agent .= '; Country: '.$user['country'];
+            }
 
             $this->initLocale($this->stb_lang);
         }
@@ -337,14 +368,26 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             return array('token' => $this->getParam('access_token'));
         }
 
+        if (Config::exist('auth_url') && !empty($_REQUEST['token']) && $_REQUEST['token'] == $this->getParam('access_token')){
+            return array('token' => $this->getParam('access_token'));
+        }
+
         $token = strtoupper(md5(mktime(1).uniqid()));
 
-        return array('token' => $token);
+        $response = array('token' => $token);
+
+        if (Config::exist('auth_url') && !empty($_REQUEST['token']) && $_REQUEST['token'] != $this->getParam('access_token')){
+            $response['not_valid'] = 1;
+        }
+
+        return $response;
     }
 
-    private function passAccessFilter($country, &$model, $mac, $serial_number, $version){
+    private function passAccessFilter($country, &$model, $mac, $serial_number, $version, $device_id, $signature, &$force_auth){
 
         $filter_file = PROJECT_PATH.'/access_filter.php';
+
+        $rnd = $this->access_token;
 
         if (is_readable($filter_file)){ // load rules file
             return require_once($filter_file);
@@ -355,6 +398,23 @@ class Stb implements \Stalker\Lib\StbApi\Stb
     
     public function getProfile(){
 
+        $debug_key = $this->getDebugKey();
+
+        if (Config::getSafe('disable_portal', false) && (empty($debug_key) || !$this->checkDebugKey($debug_key))){
+
+            try{
+                Mysql::getInstance()->update('users', array('access_token' => $this->access_token), array('id' => $this->id));
+            }catch (MysqlException $e){
+                echo $e->getMessage().PHP_EOL;
+            }
+
+            return array(
+                'status'          => 1,
+                'block_msg'       => _('The portal is temporarily unavailable.<br>Please try again later.<br>Sorry for the inconvenience.'),
+                'portal_disabled' => true
+            );
+        }
+
         if (function_exists('geoip_country_code_by_name')){
             $country = geoip_country_code_by_name($this->ip);
         }else{
@@ -363,8 +423,13 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $model         = isset($_REQUEST['stb_type']) ? $_REQUEST['stb_type'] : '';
         $serial_number = isset($_REQUEST['sn']) ? $_REQUEST['sn'] : '';
         $version       = isset($_REQUEST['ver']) ? $_REQUEST['ver'] : '';
+        $device_id     = isset($_REQUEST['device_id']) ? $_REQUEST['device_id'] : '';
+        $device_id2    = isset($_REQUEST['device_id2']) ? $_REQUEST['device_id2'] : '';
+        $signature     = isset($_REQUEST['signature']) ? $_REQUEST['signature'] : '';
 
-        $filter_response = $this->passAccessFilter($country, $model, $this->mac, $serial_number, $version);
+        $force_auth = null;
+
+        $filter_response = $this->passAccessFilter($country, $model, $this->mac, $serial_number, $version, $device_id2, $signature, $force_auth);
 
         $this->params['stb_type'] = $model;
 
@@ -401,21 +466,21 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         if (!empty($debug_key) && $this->checkDebugKey($debug_key)){
             // emulation
-        }elseif (Config::getSafe('enable_device_id_validation', true) && isset($_REQUEST['device_id'])){
+        }elseif (Config::getSafe('enable_device_id_validation', true)){
 
-            if ($_REQUEST['device_id']){
+            if ($device_id2){
 
                 $device = Mysql::getInstance()
                     ->from('users')
                     ->where(array(
-                         'device_id' =>  $_REQUEST['device_id']
+                         'device_id2' =>  $device_id2
                     ))
                     ->get()
                     ->first();
 
                 if (!empty($device) && strtoupper($device['mac']) != $this->mac){
 
-                    $this->logDeviceConflict($_REQUEST['device_id'], $this->mac, $serial_number, $model, 'MAC address mismatch');
+                    $this->logDeviceConflict($device_id2, $this->mac, $serial_number, $model, 'MAC address mismatch, reason - device_id2');
 
                     return array(
                         'status' => 1,
@@ -426,42 +491,73 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
             if ($this->id){
 
-                if (!$this->getParam('device_id')){
+                $update = array();
 
+                if (!$this->getParam('device_id') && $device_id){
+                    $update['device_id'] = $device_id;
+                }
+
+                if (!$this->getParam('device_id2') && $device_id2){
+                    $update['device_id2'] = $device_id2;
+                }
+
+                if (!empty($update)){
                     Mysql::getInstance()->update('users',
-                        array('device_id' => $_REQUEST['device_id']),
+                        $update,
                         array('id' => $this->id)
                     );
+                }
 
-                } elseif ($this->getParam('device_id') != $_REQUEST['device_id']){
+                if ($this->getParam('device_id') && ($this->getParam('device_id') != $device_id)){
 
-                    $this->logDeviceConflict($_REQUEST['device_id'], $this->mac, $serial_number, $model, 'device_id mismatch');
+                    $this->logDeviceConflict($device_id, $this->mac, $serial_number, $model, 'device_id mismatch');
 
                     return array(
-                        'status' => 1,
-                        'msg'    => 'device conflict - device_id mismatch'
+                        'status'    => 1,
+                        'msg'       => 'device conflict - device_id mismatch',
+                        'block_msg' => _('Your STB is damaged.<br/> Call the provider.')
+                    );
+                }
+
+                if ($this->getParam('device_id2') && ($this->getParam('device_id2') != $device_id2)){
+
+                    $this->logDeviceConflict($device_id2, $this->mac, $serial_number, $model, 'device_id2 mismatch');
+
+                    return array(
+                        'status'    => 1,
+                        'msg'       => 'device conflict - device_id mismatch',
+                        'block_msg' => _('Your STB is damaged.<br/> Call the provider.')
                     );
                 }
             }
         }
 
+        $valid_saved_auth = $this->getParam('access_token') && ($this->access_token == $this->getParam('access_token')) && !intval($_REQUEST['not_valid_token']);
+
         if (!$this->id){
 
             $disable_auth_for_models = Config::exist('disable_auth_for_models') ? preg_split("/\s*,\s*/", trim(Config::get('disable_auth_for_models'))) : array();
 
-            if (Config::exist('auth_url') && !in_array($model, $disable_auth_for_models)){
+            if (!$valid_saved_auth && Config::exist('auth_url') && (!in_array($model, $disable_auth_for_models) || $force_auth === true)){
+
+                if (Config::getSafe('init_device_before_auth', false)){
+                    $this->initProfile(null, null, $device_id, $device_id2);
+                    $this->getInfoFromOss(!$force_auth);
+                }
 
                 return array(
                     'status' => 2 // authentication request
                 );
 
             }else{
-                $this->initProfile(null, null, $_REQUEST['device_id']);
+                $this->initProfile(null, null, $device_id, $device_id2);
+                $this->params['stb_type'] = $model;
             }
         }else{
             Mysql::getInstance()->update('users', array('access_token' => $this->access_token), array('id' => $this->id));
 
-            if (intval($_REQUEST['auth_second_step']) === 0 && Config::exist('auth_url') && strpos(Config::get('auth_url'), 'auth_every_load')){
+            if (!$valid_saved_auth && (intval($_REQUEST['auth_second_step']) === 0) && Config::exist('auth_url') && (strpos(Config::get('auth_url'), 'auth_every_load') || $force_auth === true)){
+                $this->getInfoFromOss(!$force_auth);
                 return array(
                     'status' => 2
                 );
@@ -475,15 +571,17 @@ class Stb implements \Stalker\Lib\StbApi\Stb
                 'hd'            => @$_REQUEST['hd'],
                 'stb_type'      => $model,
                 'serial_number' => isset($_REQUEST['sn']) ? $_REQUEST['sn'] : '',
-                'num_banks'     => isset($_REQUEST['num_banks']) ? $_REQUEST['num_banks'] : 0,
+                'num_banks'     => isset($_REQUEST['num_banks']) ? (int) $_REQUEST['num_banks'] : 0,
                 'image_version' => isset($_REQUEST['image_version']) ? $_REQUEST['image_version'] : '',
                 'locale'        => $this->locale,
-                'country'       => $country
+                'country'       => $country,
+                'verified'      => (int) ($force_auth === false),
+                'hw_version'    => isset($_REQUEST['hw_version']) ? $_REQUEST['hw_version'] : ''
             ),
             array('id' => $this->id)
         );
 
-        $info = $this->getInfoFromOss();
+        $info = $this->getInfoFromOss(!$force_auth);
 
         if (self::$just_created == true && Config::getSafe('enable_welcome_message', false)){
             $event = new SysEvent();
@@ -512,7 +610,8 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $profile['locale'] = $this->locale;
         $profile['stb_lang'] = $this->stb_lang;
 
-        $profile['display_menu_after_loading'] = Config::get('display_menu_after_loading');
+        $profile['display_menu_after_loading'] = empty($this->params['show_after_loading']) ? Config::getSafe('display_menu_after_loading', false) : $this->params['show_after_loading'] == 'main_menu';
+
         $profile['record_max_length']          = intval(Config::get('record_max_length'));
 
         $profile['web_proxy_host']         = Config::exist('stb_http_proxy_host') ? Config::get('stb_http_proxy_host') : '';
@@ -521,8 +620,6 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $profile['web_proxy_pass']         = Config::exist('stb_http_proxy_pass') ? Config::get('stb_http_proxy_pass') : '';
         $profile['web_proxy_exclude_list'] = Config::exist('stb_http_proxy_exclude_list') ? Config::get('stb_http_proxy_exclude_list') : '';
         $profile['update_url']             = self::getImageUpdateUrl(empty($_REQUEST['stb_type']) ? 'mag250' : $_REQUEST['stb_type']);
-        $profile['tv_archive_days']        = Config::exist('tv_archive_parts_number') ? Config::get('tv_archive_parts_number') / 24 : 0;
-        $profile['tv_archive_hours']       = Config::getSafe('tv_archive_parts_number', 0);
 
         if (!in_array($this->mac, Config::getSafe('playback_limit_whitelist', array()))){
             $profile['playback_limit'] = (int) Config::get('enable_playback_limit', 0);
@@ -556,7 +653,11 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         $profile['allowed_stb_types']      = array_map(function($item){
             return strtolower(trim($item));
-        },explode(',', Config::getSafe('allowed_stb_types', 'MAG200,MAG245,MAG250,AuraHD')));
+        },explode(',', Config::getSafe('allowed_stb_types', 'MAG200,MAG245,MAG250,MAG254,MAG255,MAG260,MAG270,MAG275,AuraHD,WR320')));
+
+        $profile['allowed_stb_types_for_local_recording'] = array_map(function($item){
+            return strtolower(trim($item));
+        },explode(',', Config::getSafe('allowed_stb_types_for_local_recording', 'MAG245,MAG250,MAG254,MAG255,MAG260,MAG270,MAG275,AuraHD,WR320')));
 
         $auto_update_setting = ImageAutoUpdate::getSettingByStbType($this->params['stb_type']);
 
@@ -567,7 +668,7 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $profile['strict_stb_type_check'] = Config::getSafe('strict_stb_type_check', false);
 
         $profile['cas_type']   = Config::getSafe('cas_type', 0);
-        $profile['cas_params'] = Config::getSafe('cas_params', array());
+        $profile['cas_params'] = Config::getSafe('cas_params', null);
         $profile['cas_additional_params'] = Config::getSafe('cas_additional_params', array());
         $profile['cas_hw_descrambling']   = Config::getSafe('cas_hw_descrambling', 0);
         $profile['cas_ini_file']          = Config::getSafe('cas_ini_file', "");
@@ -587,7 +688,7 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         $profile['invert_channel_switch_direction']  = Config::getSafe('invert_channel_switch_direction', false);
 
-        $profile['play_in_preview_only_by_ok']  = Config::getSafe('play_in_preview_only_by_ok', false);
+        $profile['play_in_preview_only_by_ok'] = $this->params['play_in_preview_by_ok'] === null ? (bool) Config::getSafe('play_in_preview_only_by_ok', false) : (bool) $this->params['play_in_preview_by_ok'];
 
         $profile['enable_stream_error_logging'] = Config::getSafe('enable_stream_error_logging', false);
 
@@ -596,8 +697,6 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $profile['enable_service_button'] = Config::getSafe('enable_service_button', false);
 
         $profile['show_tv_channel_logo'] = Config::getSafe('show_tv_channel_logo', true);
-
-        $profile['enable_hdmi_events_handler'] = Config::getSafe('enable_hdmi_events_handler', true);
 
         $profile['tv_archive_continued'] = Config::getSafe('tv_archive_continued', false);
 
@@ -611,9 +710,39 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         $profile['epg_update_time_range'] = floatval(Config::getSafe('epg_update_delay_per_user', 0.2)) * $max_id;
 
+        $profile['store_auth_data_on_stb'] = Config::getSafe('store_auth_data_on_stb', true) && Config::exist('auth_url') && $force_auth !== false;
+
         if (Config::getSafe('enable_tariff_plans', false)){
             $profile['additional_services_on'] = '1';
         }
+
+        $profile['hdmi_event_reaction'] = $profile['hdmi_event_reaction'] === null ? (int) Config::getSafe('enable_hdmi_events_handler', true) : (int) $profile['hdmi_event_reaction'];
+
+        $profile['account_page_by_password'] = Config::getSafe('account_page_by_password', false);
+
+        $profile['tester'] = Mysql::getInstance()->from('testers')->where(array('mac' => $this->mac, 'status' => 1))->get()->first() != null;
+
+        $profile['show_channel_logo_in_preview'] = Config::getSafe('show_channel_logo_in_preview', false);
+
+        $profile['enable_stream_losses_logging'] = Config::getSafe('enable_stream_losses_logging', false);
+
+        $profile['external_payment_page_url'] = sprintf(Config::getSafe('external_payment_page_url', ''), $this->getParam('ls'), $this->mac);
+
+        $profile['max_local_recordings'] = Config::getSafe('max_local_recordings', 10);
+
+        $profile['tv_channel_default_aspect'] = Config::getSafe('tv_channel_default_aspect', 'fit');
+
+        $profile['default_led_level'] = Config::getSafe('default_led_level', 10);
+        $profile['standby_led_level'] = Config::getSafe('standby_led_level', 90);
+
+        if (Config::exist('portal_logo_url')){
+            $profile['portal_logo_url'] = Config::get('portal_logo_url');
+        }
+
+        unset($profile['device_id']);
+        unset($profile['device_id2']);
+        unset($profile['access_token']);
+        unset($profile['serial_number']);
 
         return $profile;
     }
@@ -621,21 +750,29 @@ class Stb implements \Stalker\Lib\StbApi\Stb
     public function getSettingsProfile(){
 
         return array(
-            "parent_password"      => $this->params['parent_password'],
-            "update_url"           => self::getImageUpdateUrl($this->params['stb_type']),
-            "test_download_url"    => Config::getSafe('test_download_url', ''),
-            "playback_buffer_size" => $this->params['playback_buffer_size'] / 1000,
-            "screensaver_delay"    => $this->params['screensaver_delay'],
-            "plasma_saving"        => $this->params['plasma_saving'],
-            "spdif_mode"           => $this->params['audio_out'] == 0 ? "1" : $this->params['audio_out'],
-            "modules"              => $this->getSettingsMenuModules(),
-            'ts_enabled'           => $this->params['ts_enabled'],
-            'ts_enable_icon'       => $this->params['ts_enable_icon'],
-            'ts_path'              => $this->params['ts_path'],
-            'ts_max_length'        => $this->params['ts_max_length'],
-            'ts_buffer_use'        => $this->params['ts_buffer_use'],
-            'ts_action_on_exit'    => $this->params['ts_action_on_exit'],
-            'ts_delay'             => $this->params['ts_delay'],
+            "parent_password"       => $this->params['parent_password'],
+            "update_url"            => self::getImageUpdateUrl($this->params['stb_type']),
+            "test_download_url"     => Config::getSafe('test_download_url', ''),
+            "playback_buffer_size"  => $this->params['playback_buffer_size'] / 1000,
+            "screensaver_delay"     => $this->params['screensaver_delay'],
+            "plasma_saving"         => $this->params['plasma_saving'],
+            "spdif_mode"            => $this->params['audio_out'] == 0 ? "1" : $this->params['audio_out'],
+            "modules"               => $this->getSettingsMenuModules(),
+            'ts_enabled'            => $this->params['ts_enabled'],
+            'ts_enable_icon'        => $this->params['ts_enable_icon'],
+            'ts_path'               => $this->params['ts_path'],
+            'ts_max_length'         => $this->params['ts_max_length'],
+            'ts_buffer_use'         => $this->params['ts_buffer_use'],
+            'ts_action_on_exit'     => $this->params['ts_action_on_exit'],
+            'ts_delay'              => $this->params['ts_delay'],
+            'hdmi_event_reaction'   => $this->params['hdmi_event_reaction'] === null ? (int) Config::getSafe('enable_hdmi_events_handler', true) : (int) $this->params['hdmi_event_reaction'],
+            'pri_audio_lang'        => $this->params['pri_audio_lang'],
+            'sec_audio_lang'        => $this->params['sec_audio_lang'],
+            'pri_subtitle_lang'     => $this->params['pri_subtitle_lang'],
+            'sec_subtitle_lang'     => $this->params['sec_subtitle_lang'],
+            'show_after_loading'    => empty($this->params['show_after_loading']) ? (Config::getSafe('display_menu_after_loading', false) ? 'main_menu' : 'last_channel') : $this->params['show_after_loading'],
+            'play_in_preview_by_ok' => $this->params['play_in_preview_by_ok'] === null ? (bool) Config::getSafe('play_in_preview_only_by_ok', false) : (bool) $this->params['play_in_preview_by_ok'],
+            'hide_adv_mc_settings'  => Config::getSafe('hide_adv_mc_settings', false)
         );
     }
 
@@ -643,8 +780,10 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         if (strpos($stb_model, 'AuraHD') !== false){
             $stb_type = 'aurahd';
-        }else{
+        }elseif (strpos($stb_model, 'MAG') === 0){
             $stb_type = substr($stb_model, 3);
+        }else{
+            $stb_type = strtolower($stb_model);
         }
 
         return Config::getSafe('update_url', '') != '' ? Config::get('update_url').$stb_type.'/imageupdate' : '';
@@ -677,7 +816,7 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         $data['created'] = 'NOW()';
 
-        if (Config::exist('default_stb_status')){
+        if (Config::exist('default_stb_status') && !isset($data['status'])){
             $data['status'] = intval(!Config::get('default_stb_status'));
         }
 
@@ -705,7 +844,7 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         return $user_id;
     }
     
-    private function initProfile($login = null, $password = null, $device_id = null){
+    private function initProfile($login = null, $password = null, $device_id = null, $device_id2 = null){
 
         if (!empty($login)){
             $user = Mysql::getInstance()->from('users')->where(array('login' => $login))->get()->first();
@@ -717,16 +856,18 @@ class Stb implements \Stalker\Lib\StbApi\Stb
                 'mac'          => $this->mac,
                 'access_token' => $this->access_token,
                 'name'         => substr($this->mac, 12, 16),
-                'device_id'    => $device_id
+                'device_id'    => $device_id,
+                'device_id2'   => $device_id2
             );
             $uid = self::create($data);
         }else if (!empty($user)){
 
             Mysql::getInstance()->update('users',
                 array(
-                    'mac'       => $this->mac,
-                    'name'      => substr($this->mac, 12, 16),
-                    'device_id' => $device_id
+                    'mac'        => $this->mac,
+                    'name'       => substr($this->mac, 12, 16),
+                    'device_id'  => $device_id,
+                    'device_id2' => $device_id2
                 ),
                 array(
                     'login' => $login
@@ -734,15 +875,44 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             );
 
             $uid = intval(Mysql::getInstance()->from('users')->where(array('mac' => $this->mac))->get()->first('id'));
-        }else{
-            $data = array(
-                'mac'          => $this->mac,
-                'access_token' => $this->access_token,
-                'name'         => substr($this->mac, 12, 16),
-                'device_id'    => $device_id,
-                'login'        => $login,
+        }else if (Config::getSafe('init_device_before_auth', false)){
+
+            Mysql::getInstance()->update('users',
+                array(
+                     'login' => empty($login) ? '' : $login,
+                ),
+                array(
+                     'mac' => $this->mac
+                )
             );
-            $uid = self::create($data);
+
+            $uid = intval(Mysql::getInstance()->from('users')->where(array('mac' => $this->mac))->get()->first('id'));
+        }else{
+
+            $user = Mysql::getInstance()->from('users')->where(array('mac' => $this->mac))->get()->first();
+
+            $data = array(
+                'access_token' => $this->access_token,
+                'device_id'    => $device_id,
+                'device_id2'   => $device_id2,
+                //'login'        => $login,
+            );
+
+            if (empty($user)){
+                $data['mac']  = $this->mac;
+                $data['name'] = substr($this->mac, 12, 16);
+
+                $uid = self::create($data);
+            }else{
+
+                Mysql::getInstance()->update('users',
+                    $data,
+                    array(
+                        'mac' => $this->mac
+                    )
+                );
+                $uid = $user['id'];
+            }
         }
                 
         $this->getStbParams();        
@@ -752,6 +922,10 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         if (empty($login)){
             $this->db->insert('updated_places', array('uid' => $this->id));
         }
+    }
+
+    public function checkPortalStatus(){
+        return !Config::getSafe('disable_portal', false);
     }
     
     public function getLocalization(){
@@ -767,15 +941,17 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $gmode = $_REQUEST['gmode'];
 
         $prefix = $gmode ? '_'.$gmode : '';
+
+        $template = Mysql::getInstance()->from('settings')->get()->first('default_template');
         
-        $dir = PROJECT_PATH.'/../c/i'.$prefix.'/';
+        $dir = PROJECT_PATH.'/../c/template/'.$template.'/i'.$prefix.'/';
         $files = array();
 
         if (is_dir($dir)) {
             if ($dh = opendir($dir)) {
                 while (($file = readdir($dh)) !== false) {
                     if (is_file($dir.$file)){
-                        $files[] = 'i'.$prefix.'/'.$file;
+                        $files[] = 'template/'.$template.'/i'.$prefix.'/'.$file;
                     }
                 }
                 closedir($dh);
@@ -811,11 +987,21 @@ class Stb implements \Stalker\Lib\StbApi\Stb
     
     public function setAspect(){
         $aspect = intval($_REQUEST['aspect']);
-        
-        $this->db->update('users', array('aspect' => $aspect), array('mac' => $this->mac));
-        $this->params['aspect'] = $aspect;
-        
+
+        if (!empty($_REQUEST['ch_id'])){
+            $user = User::getByMac($this->mac);
+            $user->setTvChannelAspect((int) $_REQUEST['ch_id'], $aspect);
+        }else{
+            $this->db->update('users', array('aspect' => $aspect), array('mac' => $this->mac));
+            $this->params['aspect'] = $aspect;
+        }
+
         return true;
+    }
+
+    public function getTvAspects(){
+        $user = User::getByMac($this->mac);
+        return $user->getTvChannelsAspect();
     }
     
     public function setFavItvStatus(){
@@ -928,19 +1114,19 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
                     break;
                 case 2: // Video Club
-                    
-                    //preg_match("/auto \/media\/([\S\s]+)\/(\d+)\.[a-z]*$/", $param, $tmp_arr);
+
+                    $param = preg_replace('/\s+position:\d+/', '', $param);
 
                     if (strpos($param, '://') !== false){
 
                         $video = $this->db->from('video')->where(array('rtsp_url' => $param, 'protocol' => 'custom'))->get()->first();
 
                         if (empty($video)){
-                            preg_match("/\/([^\/]+)\/[^\/]+\/(\d+)\.[a-z]*$/", $param, $tmp_arr);
+                            preg_match("/\/([^\/]+)\/[^\/]+\/(\d+)\.[a-z0-9]*$/", $param, $tmp_arr);
                         }
 
                     }else{
-                        preg_match("/auto \/media\/([\S\s]+)\/(\d+)\.[a-z]*$/", $param, $tmp_arr);
+                        preg_match("/auto \/media\/([\S\s]+)\/(\d+)\.[a-z0-9]*$/", $param, $tmp_arr);
                     }
 
                     if (empty($video) && !empty($tmp_arr)){
@@ -956,7 +1142,41 @@ class Stb implements \Stalker\Lib\StbApi\Stb
                     if (!empty($video)){
                         
                         $update_data['now_playing_content'] = $video['name'];
-                        $update_data['hd_content']          = $video['hd'];
+                        $update_data['hd_content']          = (int) $video['hd'];
+
+                        if (Config::getSafe('enable_tariff_plans', false)){
+
+                            $user = User::getInstance(Stb::getInstance()->id);
+                            $package = $user->getPackageByVideoId($video['id']);
+
+                            if (!empty($package) && $package['service_type'] == 'single'){
+
+                                $video_rent_history = Mysql::getInstance()
+                                    ->from('video_rent_history')
+                                    ->where(array(
+                                        'video_id' => $video['id'],
+                                        'uid'      => Stb::getInstance()->id
+                                    ))
+                                    ->orderby('rent_date', 'DESC')
+                                    ->get()
+                                    ->first();
+
+                                if (!empty($video_rent_history)){
+
+                                    $rent_data_update = array();
+
+                                    if ($video_rent_history['start_watching_date'] == '0000-00-00 00:00:00'){
+                                        $rent_data_update['start_watching_date'] = 'NOW()';
+                                    }
+
+                                    //$rent_data_update['watched'] = $video_rent_history['watched'] + 1;
+                                    if (!empty($rent_data_update)){
+                                        Mysql::getInstance()->update('video_rent_history', $rent_data_update, array('id' => $video_rent_history['id']));
+                                    }
+                                }
+                            }
+                        }
+
                     }else{
                         $update_data['now_playing_content'] = $param;
                     }
@@ -977,18 +1197,31 @@ class Stb implements \Stalker\Lib\StbApi\Stb
                     
                     break;
                 case 4: // Audio Club
-                    
-                    preg_match("/(\d+).mp3$/", $param, $tmp_arr);
-                    $audio_id = intval($tmp_arr[1]);
-                    
-                    $audio = $this->db->from('audio')->where(array('id' => $audio_id))->get()->first();
-                    
-                    if (!empty($audio)){
-                        $update_data['now_playing_content'] = $audio['name'];
+
+                    if (!empty($_REQUEST['content_id'])){
+                        $audio = Mysql::getInstance()
+                            ->select('audio_compositions.name as track_title, audio_albums.performer_id')
+                            ->from('audio_compositions')
+                            ->where(array('audio_compositions.id' => (int) $_REQUEST['content_id']))
+                            ->join('audio_albums', 'audio_albums.id', 'audio_compositions.album_id', 'INNER')
+                            ->get()
+                            ->first();
+
+                        if ($audio){
+                            $performer = Mysql::getInstance()
+                                ->from('audio_performers')
+                                ->where(array('id' => $audio['performer_id']))
+                                ->get()
+                                ->first();
+
+                            if ($performer){
+                                $update_data['now_playing_content'] = $performer['name'].' - '.$audio['track_title'];
+                            }
+                        }
                     }else{
                         $update_data['now_playing_content'] = $param;
                     }
-                    
+
                     break;
                 case 5: // Radio
                 
@@ -1117,9 +1350,9 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             
             $update_data['now_playing_content'] = '';
             $update_data['storage_name'] = '';
-            $update_data['hd_content'] = '';
-            $update_data['now_playing_link_id'] = '';
-            $update_data['now_playing_streamer_id'] = '';
+            $update_data['hd_content'] = 0;
+            $update_data['now_playing_link_id'] = 0;
+            $update_data['now_playing_streamer_id'] = 0;
 
             $type = 0;
         }
@@ -1168,20 +1401,28 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         
         return 1;
     }
-    
+
     public function getModules(){
+
+        $template = Mysql::getInstance()->from('settings')->get()->first('default_template');
 
         return array(
             'all_modules'        => Config::get('all_modules'),
             'switchable_modules' => Config::get('disabled_modules'),
             'disabled_modules'   => $this->getDisabledModules(),
-            'restricted_modules' => $this->getRestrictedModules()
-            );
+            'restricted_modules' => $this->getRestrictedModules(),
+            'template'           => $template
+        );
     }
 
     private function getDisabledModules(){
 
         return self::getDisabledModulesByUid($this->id);
+    }
+
+    public static function getAvailableModulesByUid($uid){
+
+        return array_values(array_diff(Config::getSafe('all_modules', array()), self::getDisabledModulesByUid($uid)));
     }
 
     public static function getDisabledModulesByUid($uid){
@@ -1295,9 +1536,11 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $locale  = $_REQUEST['locale'];
         $city_id = intval($_REQUEST['city']);
 
+        $weather = new Weather();
+
         if (in_array($locale, Config::get('allowed_locales'))){
 
-            return $this->db->update('users', array('locale' => $locale, 'city_id' => $city_id), array('id' => $this->id));
+            return $this->db->update('users', array('locale' => $locale, $weather->getCityFieldName() => $city_id), array('id' => $this->id));
         }
 
         return false;
@@ -1381,6 +1624,44 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
     }
 
+    public function setHdmiReaction(){
+
+        $data = (int) $_REQUEST['data'];
+
+        return Mysql::getInstance()->update('users',
+            array(
+                 'hdmi_event_reaction' => $data
+            ),
+            array('id' => $this->id)
+        )->result();
+    }
+
+    public function setLangPriority(){
+
+        return Mysql::getInstance()->update('users',
+            array(
+                 'pri_audio_lang'    => empty($_REQUEST['pri_audio_lang'])    ? '' : $_REQUEST['pri_audio_lang'],
+                 'sec_audio_lang'    => empty($_REQUEST['sec_audio_lang'])    ? '' : $_REQUEST['sec_audio_lang'],
+                 'pri_subtitle_lang' => empty($_REQUEST['pri_subtitle_lang']) ? '' : $_REQUEST['pri_subtitle_lang'],
+                 'sec_subtitle_lang' => empty($_REQUEST['sec_subtitle_lang']) ? '' : $_REQUEST['sec_subtitle_lang'],
+            ),
+            array('id' => $this->id)
+        )->result();
+    }
+
+    public function setPortalPrefs(){
+
+        $show_after_loading = $_REQUEST['show_after_loading'];
+        $play_in_preview_by_ok = intval($_REQUEST['play_in_preview_by_ok']);
+
+        return Mysql::getInstance()->update('users',
+            array(
+                 'show_after_loading'    => $show_after_loading,
+                 'play_in_preview_by_ok' => $play_in_preview_by_ok
+            ),
+            array('id' => $this->id));
+    }
+
     public function setCommonSettings(){
 
         $screensaver_delay = intval($_REQUEST['screensaver_delay']);
@@ -1399,13 +1680,21 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         $countries = Mysql::getInstance()->from('countries')->orderby('name_en')->get()->all();
 
         foreach ($countries as $country){
-            $selected = ($this->country_id == $country['id'])? 1 : 0;
+            if (Config::getSafe('weather_provider', 'openweathermap') == 'openweathermap'){
+                $selected = ($this->openweathermap_country_id == $country['id'])? 1 : 0;
+            }else{
+                $selected = ($this->country_id == $country['id'])? 1 : 0;
+            }
             $result[] = array('label' => $country['name_en'], 'value' => $country['id'], 'selected' => $selected);
         }
 
         return $result;
     }
 
+    /**
+     * @deprecated
+     * @return array
+     */
     public function searchCountries(){
 
         $search = $_REQUEST['search'];
@@ -1438,19 +1727,9 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         $country_id = intval($_REQUEST['country_id']);
 
-        $result = array();
+        $weather = new Weather();
 
-        /// TRANSLATORS: don't translate this.
-        $cities = Mysql::getInstance()->from('cities')->where(array('country_id' => $country_id))->orderby('name_en')->get()->all();
-
-        foreach ($cities as $city){
-            $selected = ($this->city_id == $city['id'])? 1 : 0;
-            //$city_name = empty($city[_('city_name_field')]) ? $city['name_en'] : $city[_('city_name_field')];
-            $city_name = $city['name_en'];
-            $result[] = array('label' => $city_name , 'value' => $city['id'], 'timezone' => $city['timezone'], 'selected' => $selected);
-        }
-
-        return $result;
+        return $weather->getCities($country_id);
     }
 
     public function searchCities(){
@@ -1462,25 +1741,9 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             return array();
         }
 
-        $cities = Mysql::getInstance()
-            ->select('id, name_en')
-            ->from('cities')
-            ->where(array('country_id' => $country_id))
-            ->like(array(
-                'name'    => iconv('windows-1251', 'utf-8', $search).'%',
-                'name_en' => $search.'%'
-            ), 'OR ')
-            ->limit(3)
-            ->get()
-            ->all();
+        $weather = new Weather();
 
-        $result = array();
-        
-        foreach ($cities as $city){
-            $result[] = array('label' => $city['name_en'] , 'value' => $city['id']);
-        }
-
-        return $result;
+        return $weather->getCities($country_id, $search);
     }
 
     public function getTimezones(){
@@ -1553,9 +1816,13 @@ class Stb implements \Stalker\Lib\StbApi\Stb
         return $this->getByUids($uids);
     }
 
-    private function getInfoFromOss(){
+    private function getInfoFromOss($verified){
 
         $user = User::getInstance($this->id);
+
+        if ($verified){
+            $user->setVerified();
+        }
 
         $user->refreshProfile();
 
@@ -1708,11 +1975,12 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
     public function doAuth(){
 
-        $login     = $_REQUEST['login'];
-        $password  = $_REQUEST['password'];
-        $device_id = $_REQUEST['device_id'];
+        $login      = $_REQUEST['login'];
+        $password   = $_REQUEST['password'];
+        $device_id  = $_REQUEST['device_id'];
+        $device_id2 = $_REQUEST['device_id2'];
 
-        $data = file_get_contents(Config::get('auth_url').'?login='.$login.'&password='.$password.'&mac='.$this->mac);
+        $data = file_get_contents(Config::get('auth_url').(strpos(Config::get('auth_url'), '?') > 0 ? '&' : '?' ).'login='.$login.'&password='.$password.'&mac='.$this->mac.'&ip='.$this->ip);
 
         if (!$data){
             return false;
@@ -1734,7 +2002,7 @@ class Stb implements \Stalker\Lib\StbApi\Stb
 
         if ($auth_result == "true"){
             
-            $this->initProfile($login, $password, $device_id);
+            $this->initProfile($login, $password, $device_id, $device_id2);
 
             return true;
         }else{
@@ -1847,5 +2115,11 @@ class Stb implements \Stalker\Lib\StbApi\Stb
             $e->getTraceAsString()
         ));
     }
+
+    public function setClockOnVideo(){
+        $clockType = stripslashes($_REQUEST['clockType']);
+        $this->db->update('users', array('video_clock' => $clockType), array('mac' => $this->mac));
+        $this->params['video_clock'] = $clockType;
+        return true;
+    }
 }
-?>

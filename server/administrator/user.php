@@ -23,7 +23,24 @@ if (!empty($_POST)){
 
         $user = \User::getByLogin($_POST['login']);
 
-        if (!empty($user)){
+        if (!empty($_POST['stb_mac'])){
+            $mac = Middleware::normalizeMac($_POST['stb_mac']);
+            $_POST['stb_mac'] = $mac;
+
+            if (!$mac){
+                $error = _('Error: Not valid mac address');
+            }else{
+                $user_by_mac = \User::getByMac($mac);
+
+                if (!empty($user_by_mac)){
+                    $error = _('Error: STB with such MAC address already exists');
+                }
+            }
+        }
+
+        if ($error){
+
+        }else if (!empty($user)){
             $error = _('Error: Login already in use');
         }else{
 
@@ -139,7 +156,7 @@ if (!empty($_POST)){
                     </tr>
                     <tr>
                         <td><?= _('Account disabled')?></td>
-                        <td><input type="checkbox" name="status" value="1"></td>
+                        <td><input type="checkbox" name="status" value="0"></td>
                     </tr>
                     <tr>
                         <td><?= _('Tariff plan')?></td>
@@ -157,7 +174,7 @@ if (!empty($_POST)){
                     </tr>
                     <tr>
                         <td></td>
-                        <td><input type="submit" value="<?= _('Add')?>"/></td>
+                        <td><input type="submit" value="<?= htmlspecialchars(_('Add'), ENT_QUOTES)?>"/></td>
                     </tr>
                 </table>
             </form>

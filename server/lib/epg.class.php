@@ -331,7 +331,7 @@ class Epg implements \Stalker\Lib\StbApi\Epg
      *
      * @param string $date
      * @param int $itv_id
-     * @return MysqlResult
+     * @return array|null
      */
     private function getProgramIdsForClean($date, $itv_id){
 
@@ -441,12 +441,18 @@ class Epg implements \Stalker\Lib\StbApi\Epg
 
         $ch_id = intval($_REQUEST['ch_id']);
 
+        $channel = Itv::getById($ch_id);
+
+        if (empty($channel)){
+            return array();
+        }
+
         return $this->db
             ->select('UNIX_TIMESTAMP(time) as start_timestamp, UNIX_TIMESTAMP(time_to) as stop_timestamp, name')
             ->from('epg')
             ->where(array(
-                'ch_id'    => $ch_id
-                //'time<='   => 'NOW()'
+                'ch_id'    => $ch_id,
+                'time>'    => date('Y-m-d H:i:s', strtotime('-'.$channel['tv_archive_duration'].' hours'))
             ))
             ->orderby('time')
             ->get()
@@ -624,15 +630,10 @@ class Epg implements \Stalker\Lib\StbApi\Epg
 
                 if (array_key_exists($epg[$i]['ch_id'], $archived_recs)){
 
-                    //var_dump($epg[$i]['start_timestamp'], $archived_recs[$epg[$i]['ch_id']]['start_timestamp'], $archived_recs[$epg[$i]['ch_id']]['stop_timestamp']);
-
-                    //if (time() > $archived_recs[$program[$i]['ch_id']]['start_timestamp'] && time() < $archived_recs[$program[$i]['ch_id']]['stop_timestamp']){
-                    if ($epg[$i]['start_timestamp'] > $archived_recs[$epg[$i]['ch_id']]['start_timestamp'] &&
+                    if ($epg[$i]['start_timestamp'] > time() - $archived_recs[$epg[$i]['ch_id']]['parts_number'] * 3600 &&
                         $epg[$i]['stop_timestamp'] < time()){
     
                         $epg[$i]['mark_archive'] = 1;
-                        //$epg[$i]['position']  = date("i", $epg[$i]['start_timestamp']) * 60;
-                        //$epg[$i]['media_len'] = $epg[$i]['stop_timestamp'] - $epg[$i]['start_timestamp'];
                     }else{
                         $epg[$i]['mark_archive'] = 0;
                     }
@@ -661,7 +662,30 @@ class Epg implements \Stalker\Lib\StbApi\Epg
 
         $all_user_ids = Itv::getInstance()->getAllUserChannelsIds();
 
+        $dvb_channels = Itv::getInstance()->getDvbChannels();
+        $dvb_ch_idx = null;
+
         $channel = Itv::getChannelById($ch_id);
+
+        if (empty($channel)){
+            foreach ($dvb_channels as $dvb_channel){
+                if ($dvb_channel['id'] == $ch_id){
+                    $channel = $dvb_channel;
+                    break;
+                }
+            }
+
+            for ($i = 0; $i < count($dvb_channels); $i++){
+                if ($dvb_channels[$i]['id'] == $ch_id){
+                    $channel = $dvb_channels[$i];
+                    $dvb_ch_idx = $i;
+                }
+            }
+
+            if ($dvb_ch_idx != null){
+                $dvb_ch_idx++;
+            }
+        }
 
         $total_channels = Itv::getInstance()
                                    ->getChannels()
@@ -669,6 +693,10 @@ class Epg implements \Stalker\Lib\StbApi\Epg
                                    ->in('id', $all_user_ids)
                                    ->get()
                                    ->count();
+
+        $total_iptv_channels = $total_channels;
+
+        $total_channels += count($dvb_channels);
 
         $ch_idx = Itv::getInstance()
                                    ->getChannels()
@@ -678,6 +706,7 @@ class Epg implements \Stalker\Lib\StbApi\Epg
                                    ->get()
                                    ->count();
 
+        $ch_idx += $dvb_ch_idx;
 
         if ($ch_idx === false){
             $ch_idx = 0;
@@ -704,7 +733,28 @@ class Epg implements \Stalker\Lib\StbApi\Epg
                                    ->get()
                                    ->all();
 
-        //$display_channels_ids = array_map(function($element){return $element['id'];}, $user_channels);
+        $total_iptv_pages = ceil($total_iptv_channels/$page_items);
+
+        if (count($user_channels) < $page_items){
+
+            if ($page == $total_iptv_pages){
+                $dvb_part_length = $page_items - $total_iptv_channels % $page_items;
+            }else{
+                $dvb_part_length = $page_items;
+            }
+
+            if ($page > $total_iptv_pages){
+                $dvb_part_offset = ($page - $total_iptv_pages - 1) * $page_items + ($page_items - ($total_iptv_channels) % $page_items);
+            }else{
+                $dvb_part_offset = 0;
+            }
+
+            if (isset($_REQUEST['p'])){
+                $dvb_channels = array_splice($dvb_channels, $dvb_part_offset, $dvb_part_length);
+            }
+
+            $user_channels = array_merge($user_channels, $dvb_channels);
+        }
 
         $display_channels_ids = array();
 
@@ -724,12 +774,14 @@ class Epg implements \Stalker\Lib\StbApi\Epg
             $channel = $user_channels[array_search($id, $display_channels_ids)];
 
             $result[] = array(
-                              'ch_id'  => $id,
+                              'ch_id'   => $id,
                               //'name'  => Itv::getChannelNameById($id),
-                              'name'   => $channel['name'],
-                              'number' => $channel['number'],
+                              'name'    => $channel['name'],
+                              'number'  => $channel['number'],
+                              'ch_type' => isset($channel['type']) && $channel['type'] == 'dvb' ? 'dvb' : 'iptv',
+                              'dvb_id'  => isset($channel['type']) && $channel['type'] == 'dvb' ? $channel['dvb_id'] : null,
                               'epg_container' => 1,
-                              'epg'    => $epg);
+                              'epg'     => $epg);
         }
 
         $time_marks = array();
@@ -767,36 +819,14 @@ class Epg implements \Stalker\Lib\StbApi\Epg
                      'data'           => $result);
     }
 
-    public function getDataTableForSingleChannel(){
-
-        $page  = intval($_REQUEST['p']);
-        $ch_id = intval($_REQUEST['ch_id']);
-        $default_page = false;
-
-        $page_items = 14;
-
-        if ($page == 0){
-
-            $default_page = true;
-
-            //$page = ceil($ch_idx/$page_items);
-
-            if ($page == 0){
-                $page == 1;
-            }
-        }
-    }
-
     public function getWeek(){
 
         $cur_num_day = date('N')-1;
 
-        //$week_short_arr = System::word('week_short_arr');
         $week_short_arr = array(_('Sun'),_('Mon'),_('Tue'),_('Wed'),_('Thu'),_('Fri'),_('Sat'));
 
         array_push($week_short_arr, array_shift($week_short_arr));
 
-        //$month_arr = System::word('month_arr');
         $month_arr = array(_('JANUARY'),_('FEBRUARY'),_('MARCH'),_('APRIL'),_('MAY'),_('JUNE'),_('JULY'),_('AUGUST'),_('SEPTEMBER'),_('OCTOBER'),_('NOVEMBER'),_('DECEMBER'));
 
         $year  = date("Y");
@@ -805,16 +835,14 @@ class Epg implements \Stalker\Lib\StbApi\Epg
 
         $week_days = array();
 
-        //var_dump($cur_num_day);
+        $epg_history_weeks = Config::getSafe('epg_history_weeks', 1);
 
-        for ($i=0; $i<=20; $i++){
-            $w_day   = date("d", mktime (0, 0, 0, $month, $day-$cur_num_day-7+$i, $year));
-            $w_month = date("n", mktime (0, 0, 0, $month, $day-$cur_num_day-7+$i, $year))-1;
+        for ($i=0; $i<=13+$epg_history_weeks*7; $i++){
+            $w_day   = date("d", mktime (0, 0, 0, $month, $day-$cur_num_day-$epg_history_weeks*7+$i, $year));
+            $w_month = date("n", mktime (0, 0, 0, $month, $day-$cur_num_day-$epg_history_weeks*7+$i, $year))-1;
             $week_days[$i]['f_human'] = $week_short_arr[$i % 7].' '.$w_day.' '.$month_arr[$w_month];
-            $week_days[$i]['f_mysql'] = date("Y-m-d", mktime (0, 0, 0, $month, $day-$cur_num_day-7+$i, $year));
-            //if (intval($cur_num_day) === $i){
+            $week_days[$i]['f_mysql'] = date("Y-m-d", mktime (0, 0, 0, $month, $day-$cur_num_day-$epg_history_weeks*7+$i, $year));
             if ($week_days[$i]['f_mysql'] === date("Y-m-d")){
-                //var_dump($cur_num_day, $i);
                 $week_days[$i]['today'] = 1;
             }else{
                 $week_days[$i]['today'] = 0;
@@ -935,13 +963,10 @@ class Epg implements \Stalker\Lib\StbApi\Epg
 
             if (array_key_exists($program[$i]['ch_id'], $archived_recs)){
 
-                if (($program[$i]['start_timestamp'] > $archived_recs[$program[$i]['ch_id']]['start_timestamp'] &&
-                    $program[$i]['stop_timestamp'] < time()) ||
-                    ($archived_recs[$program[$i]['ch_id']]['wowza_archive'] && $program[$i]['start_timestamp'] < (time() - date("i")*60-date("s"))) ){
+                if (($program[$i]['start_timestamp'] > time() - $archived_recs[$program[$i]['ch_id']]['parts_number'] * 3600 &&
+                    $program[$i]['stop_timestamp'] < time())){
                     
                     $program[$i]['mark_archive'] = 1;
-                    //$program[$i]['position']  = date("i", $program[$i]['start_timestamp']) * 60;
-                    //$program[$i]['media_len'] = $program[$i]['stop_timestamp'] - $program[$i]['start_timestamp'];
                 }else{
                     $program[$i]['mark_archive'] = 0;
                 }

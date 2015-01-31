@@ -7,7 +7,7 @@ function common_xpcom(){
     this.user = {};
     this.mac = '';
     this.ip  = '';
-    this.hd  = 0;
+    this.hd  = 1;
     this.type  = '';
     this.version    = '';
     this.ajax_loader  = '';
@@ -35,7 +35,7 @@ function common_xpcom(){
 
     this.cur_place = '';
 
-    this.load_step = Math.ceil(50/4);
+    this.load_step = Math.ceil(50/3);
 
     this.recordings = [];
 
@@ -290,11 +290,12 @@ function common_xpcom(){
 
                     stb.load(
                         {
-                            "type"      : "stb",
-                            "action"    : "do_auth",
-                            "login"     : login,
-                            "password"  : password,
-                            'device_id' : stb.GetUID ? stb.GetUID() : ''
+                            "type"       : "stb",
+                            "action"     : "do_auth",
+                            "login"      : login,
+                            "password"   : password,
+                            'device_id'  : stb.GetUID ? stb.GetUID() : '',
+                            'device_id2' : stb.GetUID ? (stb.GetUID(self.access_token) == stb.GetUID(self.access_token, self.access_token) ? '' : stb.GetUID('device_id', self.access_token)) : ''
                         },
                         function(result){
                             _debug('auth result', result);
@@ -326,14 +327,15 @@ function common_xpcom(){
 
     this.get_server_params = function(){
 
-        var pattern = /http:\/\/([^\/]*)\/([\w\/]+)*\/([\w\/]+)\/(.)*/;
+        var pattern = /(https?):\/\/([^\/]*)\/([\w\/]+)*\/([\w\/]+)\/(.)*/;
 
-        this.portal_ip   = document.URL.replace(pattern, "$1");
-        this.portal_path = document.URL.replace(pattern, "$2");
+        this.portal_protocol = document.URL.replace(pattern, "$1");
+        this.portal_ip   = document.URL.replace(pattern, "$2");
+        this.portal_path = document.URL.replace(pattern, "$3");
 
         _debug('stb.portal_path:', this.portal_path);
 
-        this.ajax_loader = 'http://'+this.portal_ip+'/'+this.portal_path+'/server/load.php';
+        this.ajax_loader = this.portal_protocol+'://'+this.portal_ip+'/'+this.portal_path+'/server/load.php';
 
         _debug('stb.ajax_loader:', this.ajax_loader);
     };
@@ -364,6 +366,11 @@ function common_xpcom(){
                 this.all_modules = this.all_modules.filter(function(module){
                     return self.disabled_modules.indexOf(module) == -1;
                 });
+
+                loader.set_template(result.template);
+
+                loader.append_style('load_bar');
+                loader.append_style('blocking');
 
                 loader.add(this.all_modules);
             },
@@ -499,15 +506,11 @@ function common_xpcom(){
 
             this.version = 'ImageDescription: ' + this.image_desc + '; ImageDate: ' + this.image_date + '; PORTAL version: '+ver+'; API Version: ' + stb.Version();
 
+            this.hw_version = stb.GetDeviceVersionHardware ? stb.GetDeviceVersionHardware() : '';
+
             var mtdparts = stb.RDir('getenv mtdparts').clearnl();
 
             this.num_banks = mtdparts.indexOf('RootFs2') > 0 ? 2 : 1;
-
-            if (this.type == 'MAG200' || this.type == 'MAG250' || this.type.indexOf('AuraHD') != -1){
-                this.hd = 1;
-            }else{
-                this.hd = 0;
-            }
 
             if (this.graphic_mode >= 720){
                 _debug('gSTB.SetObjectCacheCapacities');
@@ -592,6 +595,7 @@ function common_xpcom(){
                 this.user_init(this.profile);
 
                 this.clock.start();
+                this.player.ClockOnVideo.init();
 
                 connection_problem.refresh_msg();
                 authentication_problem.refresh_msg();
@@ -651,19 +655,26 @@ function common_xpcom(){
         var callback = arguments[1];
 
         var context = window;
+        var method = 'GET';
 
         if (arguments.length == 3){
             context = arguments[2];
+        }
+
+        if (arguments.length == 4){
+            method = arguments[3];
         }
 
         try{
 
             var req = new XMLHttpRequest();
 
-            //req.open("POST", this.ajax_loader + '?JsHttpRequest='+(new Date().getTime())+'-xml', true);
-            //req.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
-
-            req.open("GET", this.ajax_loader + '?' + this.params_to_query(params), true);
+            if (method == 'POST'){
+                req.open("POST", this.ajax_loader + '?JsHttpRequest='+(new Date().getTime())+'-xml', true);
+                req.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+            }else{
+                req.open("GET", this.ajax_loader + '?' + this.params_to_query(params), true);
+            }
 
             if (this.header_ua_ext.length > 0){
                 req.setRequestHeader("X-User-Agent", stb.header_ua_ext.join('; '));
@@ -693,7 +704,7 @@ function common_xpcom(){
                         result = null;
                     } else if (req.status == 0){
                         console.log('Abort request');
-                        connection_problem.show();
+                        //connection_problem.show();
                     }else{
                         connection_problem.show();
                         console.log('req.status: '+req.status);
@@ -702,8 +713,11 @@ function common_xpcom(){
                     req = null;
                 }
             };
-            req.send(null);
-            //req.send(this.params_to_query(params));
+            if (method == 'POST'){
+                req.send(this.params_to_query(params));
+            }else{
+                req.send(null);
+            }
         }catch(e){
             req = null;
             console.log(e);
@@ -749,15 +763,53 @@ function common_xpcom(){
             },
 
             function(result){
+                _debug('on get_preload_images', result);
                 if (result != null){
                     for (var i=0; i<result.length; i++){
                         stb.images[i] = new Image();
                         stb.images[i].src = result[i];
-                    	stb.images.onload = function(){};
+                        stb.images.onload = function(){};
                     }
                 }
             }
         );
+    };
+
+    this.hashCode = function(s){
+        return s.split("").reduce(function(a,b){a=((a<<5)-a)+b.charCodeAt(0);return a&a},0);
+    };
+
+    this.get_saved_access_token = function(){
+        _debug('stb.get_saved_access_token');
+
+        var file = 'stalker_'+this.hashCode(window.location.origin+window.location.pathname);
+
+        if (!stb.LoadUserData){
+            return;
+        }
+
+        var data = stb.LoadUserData(file) || "{}";
+
+        try{
+            data = JSON.parse(data)
+        }catch(e){
+            _debug(e);
+        }
+        data = data || {};
+
+        return data.token;
+    };
+
+    this.save_access_token = function(){
+        _debug('stb.save_access_token');
+
+        var file = 'stalker_'+this.hashCode(window.location.origin+window.location.pathname);
+
+        if (!stb.SaveUserData){
+            return;
+        }
+
+        stb.SaveUserData(file, JSON.stringify({"token" : this.access_token}));
     };
 
     this.handshake = function(){
@@ -766,11 +818,14 @@ function common_xpcom(){
         this.load(
             {
                 "type"   : "stb",
-                "action" : "handshake"
+                "action" : "handshake",
+                "token"  : this.get_saved_access_token() || ''
             },
             function(result){
                 _debug('on handshake', result);
                 this.access_token = result.token || '';
+
+                this.not_valid_token = result.not_valid || 0;
 
                 _debug('this.access_token', this.access_token);
 
@@ -795,7 +850,11 @@ function common_xpcom(){
                 'stb_type'         : this.type,
                 'image_version'    : this.image_version,
                 'device_id'        : stb.GetUID ? stb.GetUID() : '',
-                'auth_second_step' : auth_second_step ? 1 : 0
+                'device_id2'       : stb.GetUID ? (stb.GetUID(this.access_token) == stb.GetUID(this.access_token, this.access_token) ? '' : stb.GetUID('device_id', this.access_token)) : '',
+                'signature'        : stb.GetUID ? stb.GetUID(this.access_token) : '',
+                'auth_second_step' : auth_second_step ? 1 : 0,
+                'hw_version'       : this.hw_version,
+                'not_valid_token'  : this.not_valid_token ? 1 : 0
             },
 
             function(result){
@@ -832,46 +891,65 @@ function common_xpcom(){
         _debug('this.image_desc:', this.image_desc);
         _debug('this.image_date:', this.image_date);
         _debug('this.num_banks:', this.num_banks);
+        _debug('this.hw_version:', this.hw_version);
         //_debug('stb.user.image_version:', stb.user['image_version']);
 
         if (this.image_version < 203 && this.image_version != 0){
-            return 0;
+            return;
         }
 
         _debug('checking conditions');
         _debug('typeof stb.user[autoupdate]', typeof(stb.user['autoupdate']));
+        _debug('stb.user[autoupdate] is array', stb.user['autoupdate'] && stb.user['autoupdate'] instanceof Array);
 
-        if (typeof stb.user['autoupdate'] == 'object' &&
-            ((stb.user['autoupdate'].require_image_version != ''     && stb.user['autoupdate'].require_image_version != this.image_version) ||
-            (stb.user['autoupdate'].require_image_date != ''         && stb.user['autoupdate'].require_image_date != this.image_date)) &&
-            ((stb.user['autoupdate'].image_version_contains != ''    && stb.user['autoupdate'].image_version_contains == this.image_version) ||
-            (stb.user['autoupdate'].image_description_contains != '' && this.image_desc.indexOf(stb.user['autoupdate'].image_description_contains) != -1) ||
-            (stb.user['autoupdate'].image_version_contains == '' && stb.user['autoupdate'].image_description_contains == '')
-            )){
+        if (stb.user['autoupdate'] && stb.user['autoupdate'] instanceof Array){
+            stb.user['autoupdate'].some(function(element){
+                return stb.check_update(element);
+            });
+        }
+    };
+
+    this.check_update = function(params){
+        _debug('stb.check_update', params);
+
+        if (typeof params == 'object' &&
+            (
+                (params.require_image_version != '' && params.require_image_version != this.image_version) ||
+                (params.require_image_date != ''    && params.require_image_date != this.image_date)
+            ) &&
+            (
+                (params.image_version_contains == ''     || params.image_version_contains == this.image_version) &&
+                (params.image_description_contains == '' || this.image_desc.indexOf(params.image_description_contains) != -1) &&
+                (params.hardware_version_contains == ''  || this.hw_version.indexOf(params.hardware_version_contains) != -1)
+            )
+           ){
 
             _debug('checking conditions 2');
 
-            if (this.num_banks == 2 && stb.user['autoupdate'].update_type == 'http_update'){
+            if (this.num_banks == 2 && params.update_type == 'http_update'){
                 try{
                     _debug('this.user[update_url]', this.user['update_url']);
 
                     _debug('stb.user[autoupdate]', stb.user['autoupdate']);
 
+                    this.user['update_url'] = this.user['update_url'].replace(/\/imageupdate$/, '/'+params.prefix+'imageupdate');
+
+                    _debug('this.user[update_url] 2', this.user['update_url']);
+
                     stbUpdate.startAutoUpdate(this.user['update_url'], false);
-                    //console.log('startAutoUpdate: '+this.user['update_url']);
+
                 }catch(e){
                     _debug(e);
                 }
-            }else if (stb.user['autoupdate'].update_type == 'reboot_dhcp'){
+            }else if (params.update_type == 'reboot_dhcp'){
                 _debug('RebootDHCP');
                 stb.ExecAction('RebootDHCP');
-                //console.log('RebootDHCP');
             }
 
-            return 0;
+            return true;
         }
-        
-        return 1;
+
+        return false;
     };
 
     this.user_init = function(user_data){
@@ -908,10 +986,17 @@ function common_xpcom(){
             return;
         }
 
+        if (this.user['store_auth_data_on_stb']){
+            this.save_access_token();
+        }
+
         if (this.user['status'] == 2){
             this.init_auth_dialog();
             this.key_lock = false;
             this.auth_dialog.show();
+
+            loader.append('alert');
+
         }else if (this.user['status'] == 0){
             try{
 
@@ -940,12 +1025,11 @@ function common_xpcom(){
 
                 this.user.fav_itv_on = parseInt(this.user.fav_itv_on, 10);
 
-                this.user['aspect']    = parseInt(this.user['aspect'],    10);
+                this.user['aspect']    = stb.player.ch_aspect_idx = parseInt(this.user['aspect'],    10);
                 this.user['audio_out'] = parseInt(this.user['audio_out'], 10);
 
                 stb.user['playback_limit'] = parseInt(this.user['playback_limit'], 10);
 
-                this.user['tv_archive_days']   = parseInt(this.user['tv_archive_days'], 10);
                 this.user['screensaver_delay'] = parseInt(this.user['screensaver_delay'], 10);
                 this.user['watchdog_timeout']  = parseInt(this.user['watchdog_timeout'], 10);
                 this.user['tv_playback_retry_limit']  = parseInt(this.user['tv_playback_retry_limit'], 10);
@@ -954,7 +1038,7 @@ function common_xpcom(){
 
                 this.profile['plasma_saving_timeout'] = parseInt(this.profile['plasma_saving_timeout'], 10);
 
-                //this.user['update_url'] = this.profile['update_url'] ? this.profile['update_url'] + this.type.substr(3) + '/imageupdate' : 'http://mag.infomir.com.ua/' + this.type.substr(3) + '/imageupdate';
+                this.profile['ts_enable_icon'] = parseInt(this.profile['ts_enable_icon'], 10);
 
                 if (!this.user['update_url']){
                     try{
@@ -964,9 +1048,16 @@ function common_xpcom(){
                     }
                 }
 
+                var aspect_idx = this.aspect_array.getIdxByVal('alias', this.profile['tv_channel_default_aspect']);
+                if (aspect_idx === null){
+                    this.profile['tv_channel_default_aspect'] = 0x10;
+                }else{
+                    this.profile['tv_channel_default_aspect'] = this.aspect_array[aspect_idx].mode;
+                }
+
                 _debug('this.user[update_url]', this.user['update_url']);
 
-                if (['MAG200', 'MAG250', 'MAG245'].indexOf(this.type) >= 0 || this.type.indexOf('AuraHD') != -1){
+                if (['MAG200', 'MAG245', 'MAG250', 'MAG254', 'MAG255', 'MAG270', 'MAG275', 'WR320'].indexOf(this.type) >= 0 || this.type.indexOf('AuraHD') != -1){
                     this.check_image_version();
                 }
 
@@ -974,18 +1065,30 @@ function common_xpcom(){
 
                 this.locale = this.user.locale;
 
-                var pri_lang = this.lang_map.hasOwnProperty(this.stb_lang) ? this.lang_map[this.stb_lang] : '';
-                var sec_lang = this.lang_map.hasOwnProperty(this.user.stb_lang) ? this.lang_map[this.user.stb_lang] : '';
+                if (!this.user['pri_audio_lang']){
+                    this.user['pri_audio_lang'] = this.lang_map.hasOwnProperty(this.stb_lang) ? this.lang_map[this.stb_lang] : '';
+                    this.user['sec_audio_lang'] = this.lang_map.hasOwnProperty(this.user.stb_lang) ? this.lang_map[this.user.stb_lang] : '';
 
-                if (pri_lang == sec_lang){
-                    var default_lang = this.user['default_locale'].substr(0, 2);
-                    _debug('default_lang', default_lang);
-                    sec_lang = this.lang_map.hasOwnProperty(default_lang) ? this.lang_map[default_lang] : '';
+                    if (this.user['pri_audio_lang'] == this.user['sec_audio_lang']){
+                        var default_lang = this.user['default_locale'].substr(0, 2);
+                        _debug('default_lang', default_lang);
+                        this.user['sec_audio_lang'] = this.lang_map.hasOwnProperty(default_lang) ? this.lang_map[default_lang] : '';
+                    }
                 }
 
-                this.player.set_langs(
-                    pri_lang,
-                    sec_lang
+                this.player.set_audio_langs(
+                    this.user['pri_audio_lang'],
+                    this.user['sec_audio_lang']
+                );
+
+                if (!this.user['pri_subtitle_lang'] && !this.user['sec_subtitle_lang'] && stb.profile['always_enabled_subtitles']){
+                    this.user['pri_subtitle_lang'] = this.user['pri_audio_lang'];
+                    this.user['sec_subtitle_lang'] = this.user['sec_audio_lang'];
+                }
+
+                this.player.set_subtitle_langs(
+                    this.user['pri_subtitle_lang'],
+                    this.user['sec_subtitle_lang']
                 );
 
                 this.stb_lang = this.user.stb_lang;
@@ -1040,7 +1143,21 @@ function common_xpcom(){
 
                     stb.EnableServiceButton(!!this.user['enable_service_button']);
 
+                    if (gSTB.SetSettingsInitAttr){
+                        gSTB.SetSettingsInitAttr(JSON.stringify({
+                            url: '/home/web/system/settings/index.html',
+                            backgroundColor: '#000'
+                        }));
+                    }
+
                     stb.EnableVKButton(true);
+
+                    if (gSTB.SetLedIndicatorLevels && this.user.hasOwnProperty('default_led_level') && this.user.hasOwnProperty('standby_led_level')){
+                        _debug('this.user[default_led_level]', parseInt(this.user['default_led_level'], 10));
+                        _debug('this.user[standby_led_level]', parseInt(this.user['standby_led_level'], 10));
+                        gSTB.SetLedIndicatorMode(1);
+                        gSTB.SetLedIndicatorLevels(parseInt(this.user['default_led_level'], 10), parseInt(this.user['standby_led_level'], 10));
+                    }
 
                 }catch(e){
                     _debug(e);
@@ -1048,9 +1165,7 @@ function common_xpcom(){
 
                 this.get_modules();
 
-                //this.mount_home_dir(this.user['storages']);
                 this.set_storages(this.user['storages']);
-                stb.loader.add_pos(this.load_step, 'call stb.mount_home_dir');
 
                 this.load_channels();
                 this.load_fav_channels();
@@ -1063,10 +1178,33 @@ function common_xpcom(){
         }else if(this.user['status'] == 1){
             stb.loader.stop();
             this.cut_off(this.user.hasOwnProperty('block_msg') ? this.user['block_msg'] : '');
+            loader.append('alert');
+
+            if (this.user['portal_disabled']){
+
+                this.portal_status_interval = window.setInterval(function(){
+                    stb.load(
+                        {
+                            "type"   : "stb",
+                            "action" : "check_portal_status"
+                        },
+                        function(result){
+                            _debug('on check_portal_status', result);
+
+                            if (result){
+                                window.clearInterval(stb.portal_status_interval);
+                                window.location = window.location;
+                            }
+                        }
+                    )
+                }, 60000);
+            }
         }
 
         this.watchdog.run(this.user['watchdog_timeout'], this.user['timeslot']);
     };
+
+    this.on_first_menu_show = function(){};
 
     this.post_loading_handle = function(){
         _debug('stb.post_loading_handle');
@@ -1080,15 +1218,22 @@ function common_xpcom(){
             return;
         }
 
-        this.player.init_first_channel();
+        if (module.tv){
+            this.player.init_first_channel();
+        }
 
-        if (this.user['display_menu_after_loading'] || !this.player.channels || this.player.channels.length == 0){
+        if (this.user['display_menu_after_loading'] || !this.player.channels || this.player.channels.length == 0 || !module.tv){
             main_menu.show();
+            this.on_first_menu_show();
         }else{
             this.player.first_play();
         }
     };
 
+    /**
+     * @deprecated
+     * @param storages
+     */
     this.mount_home_dir = function(storages){
         _debug('stb.mount_home_dir: ', storages);
 
@@ -1514,12 +1659,6 @@ function common_xpcom(){
 
     this.log_stream_error = function(ch_id, event){
 
-        _debug('stb.profile[enable_stream_error_logging]', stb.profile['enable_stream_error_logging']);
-
-        if (!stb.profile['enable_stream_error_logging']){
-            return;
-        }
-
         this.load(
             {
                 "type"   : "stb",
@@ -1580,8 +1719,10 @@ function common_xpcom(){
             _debug('typeof(this.epg)', typeof(this.epg));
         },
 
-        get_curr_and_next : function(ch_id, from_ts){
-            _debug('epg_loader.get_curr_and_next', ch_id);
+        get_curr_and_next : function(ch_id, from_ts, length){
+            _debug('epg_loader.get_curr_and_next', ch_id, from_ts, length);
+
+            length = length || 2;
 
             ch_id = ''+ch_id;
 
@@ -1608,15 +1749,21 @@ function common_xpcom(){
                         }else if (this.epg[ch_id][i]['start_timestamp'] == now){
                             _debug('==');
                             result.push(this.epg[ch_id][i]);
-                            if (typeof(this.epg[ch_id][i+1]) == 'object'){
-                                result.push(this.epg[ch_id][i+1]);
+
+                            for (var j = 0; j < length - 1; j++){
+                                if (typeof(this.epg[ch_id][i+1+j]) == 'object'){
+                                    result.push(this.epg[ch_id][i+1+j]);
+                                }
                             }
                             return result;
                         }else{
                             if (typeof(this.epg[ch_id][i-1]) == 'object'){
                                 result.push(this.epg[ch_id][i-1]);
-                                if (typeof(this.epg[ch_id][i]) == 'object'){
-                                    result.push(this.epg[ch_id][i]);
+
+                                for (var j = 0; j < length - 1; j++){
+                                    if (typeof(this.epg[ch_id][i + j]) == 'object'){
+                                        result.push(this.epg[ch_id][i + j]);
+                                    }
                                 }
                             }else{
                                 result.push(this.epg[ch_id][i]);
@@ -1734,6 +1881,12 @@ function common_xpcom(){
                     cur_place_num = 5;
                 }else if(this.cur_place == 'vclub'){
                     cur_place_num = 2;
+                }else if(this.cur_place == 'karaoke'){  // Karaoke
+                    cur_place_num = 3;
+                }else if(this.cur_place == 'audioclub'){ // Audio Club
+                        cur_place_num = 4;
+                }else if (this.cur_place == 'epg_simple' || this.cur_place == 'epg'){ // TV archive
+                    cur_place_num = 11;
                 }else{
                     cur_place_num = 1;
                 }
@@ -1744,7 +1897,7 @@ function common_xpcom(){
                     cur_place_num = 2;
                 }else if(this.cur_place == 'karaoke'){ // Karaoke
                     cur_place_num = 3;
-                }else if(this.cur_place == 'audio_club'){ // Audio Club
+                }else if(this.cur_place == 'audioclub'){ // Audio Club
                     cur_place_num = 4;
                 }else if(this.cur_place == 'video_clips'){ // Video Clips
                     cur_place_num = 8;
@@ -1752,7 +1905,7 @@ function common_xpcom(){
                     cur_place_num = 9;
                 }else if(this.cur_place == 'media_browser'){
                     cur_place_num = 10;
-                }else if (this.cur_place == 'epg_simple' || this.cur_place == 'epg'){
+                }else if (this.cur_place == 'epg_simple' || this.cur_place == 'epg'){ // TV archive
                     cur_place_num = 11;
                 }else if (this.cur_place == 'records'){
                     cur_place_num = 12;
@@ -1831,7 +1984,6 @@ function common_xpcom(){
             this.day   = this.current_date.getDay();
 
             this.hours = this.current_date.getHours();
-            this.hours = this.current_date.getHours();
 
             if (this.hours > 11){
                 this.ap_mark = 'PM';
@@ -1839,15 +1991,7 @@ function common_xpcom(){
                 this.ap_mark = 'AM';
             }
 
-            if (this.hours > 12){
-                this.ap_hours = this.hours - 12;
-            }else{
-                this.ap_hours = this.hours;
-            }
-
-            if (this.ap_hours == 12){
-                this.ap_hours = 0
-            }
+            this.ap_hours = this.hours % 12 || 12;
 
             this.minutes = this.current_date.getMinutes();
             if (this.minutes<10){
@@ -1933,6 +2077,36 @@ function common_xpcom(){
             return time;
         },
 
+        convert_timestamp_to_human_time : function(timestamp){
+
+            var date = new Date(parseInt(timestamp, 10)*1000);
+
+            var hours = date.getHours();
+
+            if (hours > 11){
+                var ap_mark = 'PM';
+            }else{
+                ap_mark = 'AM';
+            }
+
+            var ap_hours = hours % 12 || 12;
+
+            if (hours<10){
+                hours = '0'+hours;
+            }
+
+            if (ap_hours<10){
+                ap_hours = '0'+ap_hours;
+            }
+
+            var minutes = date.getMinutes();
+            if (minutes<10){
+                minutes = '0'+minutes;
+            }
+
+            return get_word('time_format').format(hours, minutes, ap_hours, ap_mark);
+        },
+
         format_XX : function(value){
             if (value < 10){
                 value = '0'+value;
@@ -1949,7 +2123,9 @@ var screensaver = {
     init : function(){
         //_debug('screensaver.init');
 
-        //return;
+        if (typeof(gSTB) != "undefined" && gSTB.SetScreenSaverTime){
+            gSTB.SetScreenSaverTime(0);
+        }
 
         if (this.dom_obj){
             _debug('exit screensaver.init');
@@ -1976,8 +2152,9 @@ var screensaver = {
         this.restart_timer();
 
         stb.player.addCustomEventListener("onplay", function(event){
-            if (self.on){
+            if (self.on && stb.player.file_type != 'audio'){
                 self.hide();
+                self.restart_timer.call(self);
             }
         });
 
@@ -2016,13 +2193,30 @@ var screensaver = {
 
         window.clearTimeout(this.activate_timer);
 
-        if (stb.player.on){
-            _debug('stb.player.on', stb.player.on);
+        _debug('stb.player.on', stb.player.on);
+
+        var video_info = {};
+
+        if (stb.GetVideoInfo){
+            video_info = stb.GetVideoInfo();
+            _debug('video_info', video_info);
+
+            try{
+                video_info = eval('('+video_info+')');
+            }catch(e){
+                _debug(e);
+            }
+
+            video_info = video_info || {};
+        }
+
+        _debug('video_info', video_info);
+
+        if (stb.player.on && video_info.frameRate != 0){
             this.restart_timer();
             return;
         }
 
-        //stb.cur_layer && stb.cur_layer.dom_obj.hide();
         this.dom_obj.show();
         this.on = true;
 
@@ -2123,6 +2317,10 @@ var authentication_problem = {
 
         this.dom_obj.show();
         this.on = true;
+
+        if (stb.player && stb.player.on){
+            stb.player.stop();
+        }
     },
 
     hide : function(){

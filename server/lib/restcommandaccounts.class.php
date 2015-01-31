@@ -43,6 +43,16 @@ class RESTCommandAccounts extends RESTCommand
             throw new RESTCommandException('Insert data is empty');
         }
 
+        if (!empty($account['stb_mac'])){
+            $mac = Middleware::normalizeMac($account['stb_mac']);
+
+            if (!$mac){
+                throw new RESTCommandException('Not valid mac address');
+            }
+
+            $account['stb_mac'] = $mac;
+        }
+
         if (empty($account['login'])){
             throw new RESTCommandException('Login required');
         }
@@ -94,6 +104,15 @@ class RESTCommandAccounts extends RESTCommand
 
         if (count($identifiers) > 1){
             throw new RESTCommandException('Only one identifier allowed');
+        }
+
+        if (!empty($account['login'])){
+
+            $user = User::getByLogin($account['login']);
+
+            if (!empty($user) && ($user->getId() != $users_ids[0] || count($users_ids) > 1)){
+                throw new RESTCommandException('Login already in use');
+            }
         }
 
         $result = true;

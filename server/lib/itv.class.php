@@ -11,6 +11,9 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
     public static $instance = null;
     
     private $all_user_channels_ids;
+    private $censored_list = null;
+    private $censored_exclude_list = null;
+    private $dvb_channels = null;
     private $include_censored = true;
 
     /**
@@ -63,13 +66,13 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         $link_id = 0;
         $load = 0;
 
-        preg_match("/\/ch\/(\d+)$/", $_REQUEST['cmd'], $tmp_arr);
+        preg_match("/\/ch\/(\d+)(.*)/", $_REQUEST['cmd'], $tmp_arr);
 
         if (empty($tmp_arr)){
             $error = 'nothing_to_play';
         }
 
-        //$ch_id = intval($tmp_arr[1]);
+        $extra = $tmp_arr[2];
 
         $link_id = intval($tmp_arr[1]);
         $link = \Itv::getLinkById($link_id);
@@ -114,7 +117,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
         $res = array(
             'id'          => $ch_id,
-            'cmd'         => empty($error) ? $cmd : '',
+            'cmd'         => empty($error) ? $cmd.$extra : '',
             'streamer_id' => $streamer_id,
             'link_id'     => $link_id,
             'load'        => $load,
@@ -152,7 +155,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             }
         }
 
-        if (empty($link_id)){
+        if (empty($link_id) || empty($link)){
             throw new ItvChannelTemporaryUnavailable();
         }
 
@@ -215,21 +218,29 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
                         $channel['cmd'] = $channel['cmd'].'?'.$key;
                     }
                 }
+            }else if (!empty($link) && $link['flussonic_tmp_link']){
+                $key = $this->createTemporaryLink($this->stb->id);
+
+                if (!$key){
+                    throw new ItvLinkException('link_fault');
+                }else{
+                    $channel['cmd'] = $channel['cmd'].(strpos($channel['cmd'], '?') ? '&' : '?').'token='.$key;
+                }
             }else if ($channel['nginx_secure_link']){ // http://wiki.nginx.org/HttpSecureLinkModule
 
-                if (preg_match("/:\/\/([^\/]+)\/(\S*)/", $channel['cmd'], $match)){
+                if (preg_match("/:\/\/([^\/]+)\/?(\S*)/", $channel['cmd'], $match)){
 
-                    $path   = $match[2];
+                    $path   = '/'.$match[2];
                     $expire = time() + Config::getSafe('nginx_secure_link_ttl', 5);
                     $secret = Config::get('nginx_secure_link_secret');
 
-                    $hash = base64_encode(md5($secret . $path . $expire, true));
+                    $hash = base64_encode(md5($secret . str_replace('/playlist.m3u8', '', $path) . $expire, true));
                     $hash = strtr($hash, '+/', '-_');
                     $hash = str_replace('=', '', $hash);
 
                     $new_path = $path.(strpos($channel['cmd'], '?') ? '&' : '?').'st='.$hash.'&e='.$expire;
 
-                    $channel['cmd'] = str_replace($path, $new_path ,$channel['cmd']);
+                    $channel['cmd'] = str_replace($match[1].$path, $match[1].$new_path, $channel['cmd']);
 
                 }else{
                     throw new ItvLinkException('link_fault');
@@ -274,7 +285,9 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
                             $solution = 'ffrt';
                         }
 
-                        $channel['cmd'] = $solution.' http://'.$streamer.'/ch/'.$link_result.' '.$tmp_url_arr[4];
+                        $channel['cmd'] = $solution.' http://'.$streamer.'/ch/'.$link_result
+                            .(empty($tmp_url_arr[4]) ? '' : $tmp_url_arr[4])
+                            .(empty($tmp_url_arr[5]) ? '' : $tmp_url_arr[5]);
                     }
                 }
             }
@@ -393,35 +406,15 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         }
         
         $fav_ch = @$_REQUEST['fav_ch'];
-        
+
         if (empty($fav_ch)){
-            $fav_ch = '';
+            $fav_ch = array();
+        }else{
+            $fav_ch = explode(",", $fav_ch);
         }
 
-        $fav_ch = explode(",", $fav_ch);
-        
         if (is_array($fav_ch)){
-            /*$fav_ch_str = base64_encode(serialize($fav_ch));
-            
-            $fav_itv_arr = $this->db->from('fav_itv')->where(array('uid' => $uid))->get()->first();
-            
-            if (empty($fav_itv_arr)){
-                $this->db->insert('fav_itv',
-                                   array(
-                                        'uid'     => $uid,
-                                        'fav_ch'  => $fav_ch_str,
-                                        'addtime' => 'NOW()'
-                                   ));
-            }else{
-                $this->db->update('fav_itv',
-                                   array(
-                                        'fav_ch'  => $fav_ch_str,
-                                        'addtime' => 'NOW()'
-                                   ),
-                                   array('uid' => $uid));
-            }*/
-
-            return $this->saveFav($fav_ch, $uid);
+            return $this->saveFav(array_unique($fav_ch), $uid);
         }
         
         return true;
@@ -489,39 +482,44 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
         $all_user_channels_ids = $this->getAllUserChannelsIds();
 
+        if (!$include_censored){
+            $censored_origin = Mysql::getInstance()->from('itv')->where(array('censored' => 1))->get()->all('id');
+            $censored_list = $this->getCensoredList();
+            $censored_exclude_list = $this->getCensoredExcludeList();
+
+            $censored_real = array_values(array_diff(array_merge($censored_origin, $censored_list), $censored_exclude_list));
+        }
+
         /** @var Mysql $query  */
         $query = $this->db->from('itv');
 
         $this->include_censored = $include_censored;
         
         if (!$include_censored){
-            $query->where(array('censored' => 0));
+            $query->not_in('id', $censored_real);
         }
                         
         if (!$this->stb->isModerator()){
             $query->where(array('status' => 1));
         }
 
-        if (Config::get('enable_tv_quality_filter')){
-            //$query->where(array('quality' => $this->stb->getParam('tv_quality')));
-        }
+        $query->in('id', $all_user_channels_ids);
 
-        //if (Config::get('enable_tariff_plans')){
-            $query->in('id', $all_user_channels_ids);
-        //}
-
-        
         return $query;
     }
 
     public static function getFilteredUserChannelsIds(){
 
-        $user_agent = User::getUserAgent();
+        $user_agent = Stb::getInstance()->getUserAgent();
 
         $all_links = Mysql::getInstance()->from('ch_links')->groupby('ch_id')->get()->all();
 
-        $user_links = array_filter($all_links, function($link) use ($user_agent){
-            return $link['user_agent_filter'] == '' || preg_match("/".$link['user_agent_filter']."/", $user_agent);
+        $disable_channel_filter_for_macs = Config::getSafe('disable_channel_filter_for_macs', array());
+
+        $mac = Stb::getInstance()->mac;
+
+        $user_links = array_filter($all_links, function($link) use ($user_agent, $disable_channel_filter_for_macs, $mac){
+            return $link['user_agent_filter'] == '' || in_array($mac, $disable_channel_filter_for_macs) || preg_match("/".$link['user_agent_filter']."/", $user_agent);
         });
 
         //var_dump($user_links);
@@ -563,19 +561,11 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         if (empty($fav_str)){
             $fav_str = 'null';
         }
-        
-        $fav_channels = $this->getChannels()
-                                            ->in('id' , $fav_ids)
-                                            ->orderby('field(id,'.$fav_str.')');
-                                            //->get()
-                                            //->all();
-        
-        /*for ($i=0; $i<count($fav_channels); $i++){
-            $fav_channels[$i]['number'] = $i+1;
-        }
-        
-        return $fav_channels;   */
-        
+
+        $fav_channels = $this->getChannels(true)->in('id', $fav_ids)->orderby('field(id,' . $fav_str . ')');
+
+        $this->include_censored = false;
+
         $this->setResponseData($fav_channels);
         
         return $this->getResponse('prepareData');
@@ -614,6 +604,17 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
         $genres = $genres_query->get()->all();
 
+        if (in_array('dvb', stb::getAvailableModulesByUid($this->stb->id))
+            && in_array(Stb::getInstance()->getParam('stb_type'), array('MAG270', 'MAG275'))){
+            array_unshift($genres, array('id' => 'dvb', 'title' => _('DVB')));
+        }
+
+        if (Config::getSafe('show_pvr_filter_in_genres_list', false)
+            && in_array(Stb::getInstance()->getParam('stb_type'), explode(',', Config::get('allowed_stb_types_for_local_recording')))
+        ){
+            array_unshift($genres, array('id' => 'pvr', 'title' => _('Channels with PVR')));
+        }
+
         array_unshift($genres, array('id' => '*', 'title' => $this->all_title));
 
         $genres = array_map(function($item){
@@ -625,7 +626,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         return $genres;
     }
     
-    private function getOffset($where = array()){
+    private function getOffset($where = array(), $where_or = array()){
         
         if (!$this->load_last_page){
             return $this->page * self::max_page_items;
@@ -639,8 +640,23 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         }else{
             $last_id = $this->getLastId();
         }
-        
+
+        if (empty($_REQUEST['genre']) || $_REQUEST['genre'] == '*' || $_REQUEST['genre'] == 'dvb'){
+            $dvb_channels = $this->getDvbChannels();
+        }else{
+            $dvb_channels = array();
+        }
+
         $tv_number = $this->db->from('itv')->where(array('id' => $last_id))->get()->first('number');
+
+        if (empty($tv_number) && !empty($dvb_channels)){
+            foreach ($dvb_channels as $channel){
+                if ($channel['id'] == $last_id){
+                    $tv_number = $channel['number'];
+                    break;
+                }
+            }
+        }
         
         $ch_idx = 0;
         
@@ -656,20 +672,26 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
                 $query = $this->db->from('itv')->where($where)->in('itv.id', $fav);
 
-                if (Config::get('enable_tariff_plans')){
+                if (!empty($where_or)){
+                    $query->where($where_or, 'OR ');
+                }
+
+                if (Config::getSafe('enable_tariff_plans', false) && !Config::getSafe('enable_tv_subscription_for_tariff_plans', false)){
                     $query->in('itv.id', $all_user_channels_ids);
                 }
 
                 $ch_idx = $query->get()->count();
+
+                if (!empty($dvb_channels)){
+                    $flipped_fav = array_flip($fav);
+                    foreach ($dvb_channels as $channel){
+                        if (isset($flipped_fav[$channel['id']])){
+                            $ch_idx++;
+                        }
+                    }
+                }
             }
 
-/*            $query = $this->db->from('itv')->where($where)->in('itv.id', $fav);
-
-            if (Config::get('enable_tariff_plans')){
-                $query->in('itv.id', $all_user_channels_ids);
-            }
-
-            $ch_idx = $query->get()->count();*/
         }else{
 
             $sortby = $_REQUEST['sortby'];
@@ -678,22 +700,77 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
                 $query = $this->db->from('itv')->where($where)->orderby('name');
 
-                if (Config::get('enable_tariff_plans')){
+                if (!empty($where_or)){
+                    $query->where($where_or, 'OR ');
+                }
+
+                if (Config::getSafe('enable_tariff_plans', false) && !Config::getSafe('enable_tv_subscription_for_tariff_plans', false)){
                     $query->in('itv.id', $all_user_channels_ids);
                 }
 
-                $all_ids = $query->get()->all('id');
+                $all_channels = $query->get()->all();
 
-                $ch_idx = (int) array_search($last_id, $all_ids) + 1;
+                $all_channels_map = array();
+
+                foreach ($all_channels as $channel){
+                    $all_channels_map[$channel['name'].'-'.$channel['id']] = $channel;
+                }
+
+                $dvb_channels_name_map = array();
+
+                foreach ($dvb_channels as $channel){
+                    $dvb_channels_name_map[$channel['name'].'-'.$channel['id']] = $channel;
+                }
+
+                $all_channels_map = array_merge($all_channels_map, $dvb_channels_name_map);
+
+                ksort($all_channels_map);
+
+                $ch_idx = 0;
+
+                foreach ($all_channels_map as $key => $channel){
+
+                    $ch_idx++;
+
+                    if ($channel['id'] == $last_id){
+                        break;
+                    }
+                }
 
             }else{
+
+                $user = User::getInstance(Stb::getInstance()->id);
+                $options = $user->getServicesByType('option');
+                if ($options && array_search('show_unsubscribed_tv_channels', $options) !== false){
+                    $show_unsubscribed_tv_channels_option = true;
+                }else{
+                    $show_unsubscribed_tv_channels_option = false;
+                }
+
                 $query = $this->db->from('itv')->where($where)->where(array('number<=' => $tv_number));
 
-                if (!Config::getSafe('show_unsubscribed_tv_channels', false) || Config::getSafe('show_unsubscribed_tv_channels', false) && in_array($this->stb->mac, Config::getSafe('hide_unsubscribed_for_macs', array()))){
+                if (!empty($where_or)){
+                    $query->where($where_or, 'OR ');
+                }
+
+                if (!$show_unsubscribed_tv_channels_option && (!Config::getSafe('show_unsubscribed_tv_channels', false) || Config::getSafe('show_unsubscribed_tv_channels', false) && in_array($this->stb->mac, Config::getSafe('hide_unsubscribed_for_macs', array())))){
                     $query->in('itv.id', $all_user_channels_ids);
                 }
 
                 $all_ids = $query->get()->all('id');
+
+                if (!empty($dvb_channels) && $dvb_channels[0]['number'] < $tv_number){
+
+                    $dvb_channels_ids = array();
+
+                    foreach ($dvb_channels as $channel){
+                        if ($channel['number'] <= $tv_number){
+                            $dvb_channels_ids[] = $channel['id'];
+                        }
+                    }
+
+                    $all_ids = array_merge($all_ids, $dvb_channels_ids);
+                }
 
                 if (array_search($last_id, $all_ids) !== false){
                     $ch_idx = count($all_ids);
@@ -738,33 +815,53 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             //$where['quality'] = $quality;
         }
         
-        if (@$_REQUEST['genre'] && @$_REQUEST['genre'] !== '*'){
+        if (!empty($_REQUEST['genre']) && $_REQUEST['genre'] !== '*' && $_REQUEST['genre'] !== 'pvr'){
             
             $genre = intval($_REQUEST['genre']);
             
             $where['tv_genre_id'] = $genre;
+        }elseif(!empty($_REQUEST['genre']) && $_REQUEST['genre'] == 'pvr'){
+            $where_or = array(
+                'allow_pvr' => 1,
+                'allow_local_pvr' => 1
+            );
         }
 
         if ((empty($_REQUEST['genre']) || $_REQUEST['genre'] == '*') && !Config::getSafe('show_adult_tv_channels_in_common_list', true)){
             $where['tv_genre_id!='] = (int) Mysql::getInstance()->from('tv_genre')->where(array('title' => 'for adults'))->get()->first('id');
         }
         
-        $offset = $this->getOffset($where);
-        
-        return $this->db
-                        ->from('itv')
-                        ->where($where)
-                        ->limit(self::max_page_items, $offset);
+        $offset = $this->getOffset($where, isset($where_or) ? $where_or : array());
+
+        $this->db
+            ->from('itv')
+            ->where($where)
+            ->limit(self::max_page_items, $offset);
+
+        if (isset($where_or)){
+            $this->db->where($where_or, 'OR ');
+        }
+
+        return $this->db;
     }
     
     public function getOrderedList(){
         $fav = $this->getFav();
         $all_user_channels_ids = $this->getAllUserChannelsIds();
+        $dvb_channels = $this->getDvbChannels();
 
         $fav_str = implode(",", $fav);
 
         if (empty($fav_str)){
             $fav_str = 'null';
+        }
+
+        $user = User::getInstance(Stb::getInstance()->id);
+        $options = $user->getServicesByType('option');
+        if ($options && array_search('show_unsubscribed_tv_channels', $options) !== false){
+            $show_unsubscribed_tv_channels_option = true;
+        }else{
+            $show_unsubscribed_tv_channels_option = false;
         }
 
         $result = $this->getData();
@@ -773,7 +870,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             $sortby = $_REQUEST['sortby'];
 
             if ($sortby == 'name'){
-                $result = $result->orderby('name');
+
             }elseif ($sortby == 'number'){
                 $result = $result->orderby('number');
             }elseif ($sortby == 'fav'){
@@ -788,11 +885,39 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             $result = $result->in('itv.id', $fav);
         }
 
-        if (!Config::getSafe('show_unsubscribed_tv_channels', false) || Config::getSafe('show_unsubscribed_tv_channels', false) && in_array($this->stb->mac, Config::getSafe('hide_unsubscribed_for_macs', array()))){
+        if (!$show_unsubscribed_tv_channels_option && (!Config::getSafe('show_unsubscribed_tv_channels', false) || Config::getSafe('show_unsubscribed_tv_channels', false) && in_array($this->stb->mac, Config::getSafe('hide_unsubscribed_for_macs', array())))){
             $result = $result->in('itv.id', $all_user_channels_ids);
         }
 
-        $this->setResponseData($result);
+        if (@$_REQUEST['sortby'] == 'name'){
+
+            $iptv_channels = $result->nolimit()->get()->all();
+
+            $iptv_channels_map = array();
+            foreach ($iptv_channels as $channel){
+                $iptv_channels_map[$channel['name'].'-'.$channel['id']] = $channel;
+            }
+
+            $dvb_channels_name_map = array();
+
+            foreach ($dvb_channels as $channel){
+                $dvb_channels_name_map[$channel['name'].'-'.$channel['id']] = $channel;
+            }
+
+            $all_channels_map = array_merge($iptv_channels_map, $dvb_channels_name_map);
+
+            ksort($all_channels_map);
+
+            $page_channels = array_slice(array_values($all_channels_map), $this->page * self::max_page_items, self::max_page_items);
+
+            $this->setResponse('total_items', count($all_channels_map));
+            $this->setResponse('cur_page', $this->cur_page);
+            $this->setResponse('selected_item', $this->selected_item);
+            $this->setResponse('data', $page_channels);
+
+        }else{
+            $this->setResponseData($result);
+        }
 
         return $this->getResponse('prepareData');
     }
@@ -802,18 +927,73 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         $fav           = $this->getFav();
         $censored_list = $this->getCensoredList();
         $censored_exclude_list = $this->getCensoredExcludeList();
+        $dvb_channels = $this->getDvbChannels();
 
         //var_dump('!!!!!!!!!!!!!!!!', $censored_list, $censored_exclude_list, $this->include_censored);
 
         $epg = new Epg();
 
-        //$qualities = array('high' => 1, 'medium' => 2, 'low' => 3);
-
         $quality = $this->stb->getParam('tv_quality');
+
+        $total_iptv_channels = (int) $this->response['total_items'];
+
+        if (@$_REQUEST['sortby'] != 'name' && (empty($_REQUEST['genre']) || $_REQUEST['genre'] == '*' || $_REQUEST['genre'] == 'dvb')){
+            $this->response['total_items'] += count($dvb_channels);
+        }
+
+        if (((count($this->response['data']) < self::max_page_items) && !empty($dvb_channels) || !isset($_REQUEST['p'])) && @$_REQUEST['sortby'] != 'name' && (empty($_REQUEST['genre']) || $_REQUEST['genre'] == '*' || $_REQUEST['genre'] == 'dvb')){
+
+            if (!empty($_REQUEST['fav'])){
+                $dvb_channels = array_values(array_filter($dvb_channels, function($channel) use ($fav){
+                    return in_array($channel['id'], $fav);
+                }));
+            }
+
+            $total_iptv_pages = ceil($total_iptv_channels/self::max_page_items);
+
+            if ($this->page == $total_iptv_pages-1){
+                $dvb_part_length = self::max_page_items - $total_iptv_channels % self::max_page_items;
+            }else{
+                $dvb_part_length = self::max_page_items;
+            }
+
+            if (!empty($_REQUEST['genre']) && $_REQUEST['genre'] == 'dvb'){
+                $dvb_part_offset = $this->page * self::max_page_items;
+            }elseif($this->page > $total_iptv_pages-1){
+                $dvb_part_offset = ($this->page - $total_iptv_pages) * self::max_page_items + (self::max_page_items - $total_iptv_channels % self::max_page_items);
+            }else{
+                $dvb_part_offset = 0;
+            }
+
+            if (isset($_REQUEST['p'])){
+                $dvb_channels = array_splice($dvb_channels, $dvb_part_offset, $dvb_part_length);
+            }
+
+            $this->response['data'] = array_merge($this->response['data'], $dvb_channels);
+
+            if (!empty($_REQUEST['fav'])){
+
+                $ordered_list = array();
+                $channels_map = array();
+
+                foreach ($this->response['data'] as $channel){
+                    $channels_map[$channel['id']] = $channel;
+                }
+
+                foreach ($fav as $ch_id){
+                    if (!empty($channels_map[$ch_id]))
+                    $ordered_list[] = $channels_map[$ch_id];
+                }
+
+                $this->response['data'] = $ordered_list;
+            }
+        }
 
         $length = count($this->response['data']);
 
         $enable_numbering_in_order = Config::getSafe('enable_numbering_in_order', false);
+
+        $excluded = 0;
 
         for ($i = 0; $i < $length; $i++){
 
@@ -865,10 +1045,14 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
                 $this->response['data'][$i]['lock'] = 1;
             }
 
+            unset($this->response['data'][$i]['descr']);
+            unset($this->response['data'][$i]['monitoring_url']);
+
             if ($this->response['data'][$i]['lock'] == 1 && !$this->include_censored){
                 array_splice($this->response['data'], $i, 1);
                 $length--;
                 $i--;
+                $excluded++;
                 continue;
             }
             
@@ -885,7 +1069,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             }
             
             if (@$_REQUEST['fav'] || $enable_numbering_in_order){
-                $this->response['data'][$i]['number'] = strval(($i+1) + (self::max_page_items * ($this->page)));
+                $this->response['data'][$i]['number'] = strval(($i+1) + (self::max_page_items * ($this->page)) + (!empty($_REQUEST['fav']) ? $excluded : 0));
             }
             
             //$this->response['data'][$i]['genres_str'] = $this->getGenreById($this->response['data'][$i]['id']);
@@ -916,7 +1100,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
                 $this->response['data'][$i]['cmd'] = 'udp://ch/'.$this->response['data'][$i]['id'];
             }
             
-            if (Config::get('enable_subscription')){
+            if (Config::get('enable_subscription') && (empty($this->response['data'][$i]['type']) || $this->response['data'][$i]['type'] != 'dvb')){
                 
                 if (in_array($this->response['data'][$i]['id'], $this->getAllUserChannelsIds()) || $this->stb->isModerator()){
                 //if (in_array($this->response['data'][$i]['id'], $this->getAllUserChannelsIds())){
@@ -931,11 +1115,13 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
                 $this->response['data'][$i]['only_for_moderator'] = 1;
             }
 
-            $this->response['data'][$i]['cmds']               = self::getUrlsForChannel($this->response['data'][$i]['id']);
-            $this->response['data'][$i]['cmd']                = empty($this->response['data'][$i]['cmds'][0]['url']) ? '' : $this->response['data'][$i]['cmds'][0]['url'];
-            $this->response['data'][$i]['use_http_tmp_link']  = empty($this->response['data'][$i]['cmds'][0]['use_http_tmp_link']) ? 0 : $this->response['data'][$i]['cmds'][0]['use_http_tmp_link'];
-            $this->response['data'][$i]['wowza_tmp_link']     = empty($this->response['data'][$i]['cmds'][0]['wowza_tmp_link']) ? 0 : $this->response['data'][$i]['cmds'][0]['wowza_tmp_link'];
-            $this->response['data'][$i]['use_load_balancing'] = empty($this->response['data'][$i]['cmds'][0]['use_load_balancing']) ? 0 : $this->response['data'][$i]['cmds'][0]['use_load_balancing'];
+            if (empty($this->response['data'][$i]['type']) || $this->response['data'][$i]['type'] != 'dvb'){
+                $this->response['data'][$i]['cmds']               = self::getUrlsForChannel($this->response['data'][$i]['id']);
+                $this->response['data'][$i]['cmd']                = empty($this->response['data'][$i]['cmds'][0]['url']) ? '' : $this->response['data'][$i]['cmds'][0]['url'];
+                $this->response['data'][$i]['use_http_tmp_link']  = empty($this->response['data'][$i]['cmds'][0]['use_http_tmp_link']) ? 0 : $this->response['data'][$i]['cmds'][0]['use_http_tmp_link'];
+                $this->response['data'][$i]['wowza_tmp_link']     = empty($this->response['data'][$i]['cmds'][0]['wowza_tmp_link']) ? 0 : $this->response['data'][$i]['cmds'][0]['wowza_tmp_link'];
+                $this->response['data'][$i]['use_load_balancing'] = empty($this->response['data'][$i]['cmds'][0]['use_load_balancing']) ? 0 : $this->response['data'][$i]['cmds'][0]['use_load_balancing'];
+            }
 
             if (empty($this->response['data'][$i]['cmds']) || $this->response['data'][$i]['enable_monitoring'] && $this->response['data'][$i]['monitoring_status'] == 0){
                 $this->response['data'][$i]['open'] = 0;
@@ -946,6 +1132,10 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             $this->response['data'][$i]['mc_cmd'] = empty($this->response['data'][$i]['mc_cmd']) ? '' : '1';
             $this->response['data'][$i]['allow_pvr'] = $this->response['data'][$i]['allow_pvr']==0 ? '' : '1';
             $this->response['data'][$i]['allow_local_pvr'] = $this->response['data'][$i]['allow_local_pvr']==0 ? '' : '1';
+
+            $this->response['data'][$i]['pvr'] = (int) (Config::getSafe('show_tv_channel_pvr_icon', true)
+                && ($this->response['data'][$i]['allow_pvr'] || $this->response['data'][$i]['allow_local_pvr'])
+            );
         }
 
         return $this->response;
@@ -983,7 +1173,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
     public function getAllUserChannelsIdsByUid($uid){
 
-        if (Config::getSafe('enable_tariff_plans', false)){
+        if (Config::getSafe('enable_tariff_plans', false) && !Config::getSafe('enable_tv_subscription_for_tariff_plans', false)){
 
             $user = User::getInstance(Stb::getInstance()->id);
             $subscription = $user->getServicesByType('tv');
@@ -1060,6 +1250,12 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
     public function getShortEpg(){
         
         $ch_id = intval($_REQUEST['ch_id']);
+
+        $channel = Itv::getById($ch_id);
+
+        if (empty($channel['xmltv_id'])){
+            return array();
+        }
         
         $epg = new Epg();
         
@@ -1118,6 +1314,10 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
     }
 
     private function getCensoredExcludeList(){
+
+        if ($this->censored_exclude_list !== null){
+            return $this->censored_exclude_list;
+        }
         
         $list = Mysql::getInstance()->from('censored_channels')->where(array('uid' => $this->stb->id))->get()->first('exclude');
 
@@ -1155,6 +1355,10 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
     }
 
     private function getCensoredList(){
+
+        if ($this->censored_list !== null){
+            return $this->censored_list;
+        }
 
         $list = Mysql::getInstance()->from('censored_channels')->where(array('uid' => $this->stb->id))->get()->first('list');
 
@@ -1250,7 +1454,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
     public static function getUrlsForChannel($ch_id){
 
-        $user_agent = User::getUserAgent();
+        $user_agent = Stb::getInstance()->getUserAgent();
 
         $channel_links = Mysql::getInstance()
             ->from('ch_links')
@@ -1259,8 +1463,12 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
             ->get()
             ->all();
 
-        $user_channel_links = array_filter($channel_links, function($link) use ($user_agent){
-            return $link['user_agent_filter'] != '' && preg_match("/".$link['user_agent_filter']."/", $user_agent);
+        $disable_channel_filter_for_macs = Config::getSafe('disable_channel_filter_for_macs', array());
+
+        $mac = Stb::getInstance()->mac;
+
+        $user_channel_links = array_filter($channel_links, function($link) use ($user_agent, $disable_channel_filter_for_macs, $mac){
+            return in_array($mac, $disable_channel_filter_for_macs) || $link['user_agent_filter'] != '' && preg_match("/".$link['user_agent_filter']."/", $user_agent);
         });
 
         if (empty($user_channel_links)){
@@ -1288,6 +1496,86 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
         }, $user_channel_links);
 
         return array_values($user_channel_links);
+    }
+
+    public function saveDvbChannels(){
+
+        $channels = json_decode($_REQUEST['channels'], true);
+
+        if ($channels === null){
+            return false;
+        }
+
+        $dvb_channels = Mysql::getInstance()->from('dvb_channels')->where(array('uid' => $this->stb->id))->get()->first('channels');
+
+        if (empty($dvb_channels)){
+            return Mysql::getInstance()->insert('dvb_channels',
+                array(
+                     'uid'      => $this->stb->id,
+                     'channels' => json_encode($channels),
+                     'modified' => 'NOW()'
+                )
+            )->insert_id();
+        }else{
+            return Mysql::getInstance()->update('dvb_channels',
+                array(
+                     'channels' => json_encode($channels),
+                     'modified' => 'NOW()'
+                ),
+                array('uid' => $this->stb->id)
+            )->result();
+        }
+    }
+
+    public function getDvbChannels(){
+
+        if ($this->dvb_channels !== null){
+            return $this->dvb_channels;
+        }
+
+        if (!in_array('dvb', stb::getAvailableModulesByUid($this->stb->id))){
+            $this->dvb_channels = array();
+            return $this->dvb_channels;
+        }
+
+        $dvb_channels = Mysql::getInstance()->from('dvb_channels')->where(array('uid' => $this->stb->id))->get()->first('channels');
+
+        if (empty($dvb_channels)){
+            $this->dvb_channels = array();
+            return $this->dvb_channels;
+        }
+
+        $dvb_channels = json_decode($dvb_channels, true);
+
+        if (!$dvb_channels){
+            $this->dvb_channels = array();
+            return $this->dvb_channels;
+        }
+
+        $ch_number = (int) $this->getChannels(true)->orderby('number', 'desc')->get()->first('number');
+
+        $this->dvb_channels = array_map(function($channel) use (&$ch_number){
+
+            $ch_number++;
+            $channel['type'] = 'dvb';
+            $channel['cmd']  = 'dvb dvb://'. $channel['id'];
+            $channel['cmds'] = array($channel['cmd']);
+            $channel['name'] = $channel['name'] . ' (DVB)';
+            $channel['status'] = 1;
+            $channel['number'] = (string) $ch_number;
+            $channel['dvb_id'] = $channel['id'];
+            $channel['id'] = (int) str_replace(array('T', 'C', '_'), '', $channel['id']);
+            $channel['scrambled'] = $channel['scrambled'] == 'true' ? 1 : 0;
+            $channel['tv_genre_id'] = 'dvb';
+
+            unset($channel['isRadio']);
+            unset($channel['symrate']);
+            unset($channel['channel_number']);
+
+            return $channel;
+        }, $dvb_channels);
+
+        return $this->dvb_channels;
     }
 
     public static function setChannelLinkStatus($link_id, $status){
@@ -1353,7 +1641,7 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
                 $message = sprintf(_("Channel %s set to active because at least one of its URLs became available."), $channel['number'].' '.$channel['name']);
 
-                mail(Config::get('administrator_email'), 'FreeTV monitoring report: channel enabled', $message);
+                mail(Config::get('administrator_email'), 'Channels monitoring report: channel enabled', $message, "Content-type: text/html; charset=UTF-8\r\n");
             }
 
         }else if (empty($good_links) && $channel['monitoring_status'] == 1){
@@ -1363,11 +1651,11 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
 
                 $message = sprintf(_('Channel %s set to inactive because all its URLs are not available.'), $channel['number'].' '.$channel['name']);
 
-                mail(Config::get('administrator_email'), 'FreeTV monitoring report: channel disabled', $message);
+                mail(Config::get('administrator_email'), 'Channels monitoring report: channel disabled', $message, "Content-type: text/html; charset=UTF-8\r\n");
             }
         }
 
-        return Mysql::getInstance()->update('itv', array('monitoring_status_updated' => 'NOW()'), array('id' => $ch_id));
+        return Mysql::getInstance()->update('itv', array('monitoring_status_updated' => 'NOW()'), array('id' => $ch_id))->result();
     }
 
     public function getLinksForMonitoring(){
@@ -1436,6 +1724,12 @@ class Itv extends AjaxResponse implements \Stalker\Lib\StbApi\Itv
                 $cmd['url'] = $cmd['monitoring_url'];
             }else if (preg_match("/(\S+:\/\/\S+)/", $cmd['url'], $match)){
                 $cmd['url'] = $match[1];
+            }
+
+            if ($cmd['flussonic_tmp_link']){
+                $cmd['type'] = 'flussonic_health';
+            }else{
+                $cmd['type'] = 'stream';
             }
 
             return $cmd;

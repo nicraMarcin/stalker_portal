@@ -4,6 +4,18 @@
  * @mentor DarkPark
  ********************/
 
+// global event
+var stbEvent = {
+	onEvent : function(data){},
+	onMessage: function( from, message, data ){
+		this.trigger(message, {from: from, data: data});
+	},
+	onBroadcastMessage: function( from, message, data ){
+		echo(message, "onBroadcastMessage");
+		this.trigger("broadcast." + message, {from: from, data: data});
+	},
+	event : 0
+};
 
 /** 
  * global Main Page object
@@ -27,27 +39,26 @@ ListPage.Info    = new CBase(ListPage);
 
 
 // получение ссылки на место, куда вернуться после закрытия
-var _GET = {};
-_GET['referer'] = '';
-_GET['proxy'] = '';
-(function get_params(){
-    var get = new String(window.location);
-    var x = get.indexOf('?');
-    if (x!=-1){
-        var l = get.length;
-        get = get.substr(x+1, l-x);
-        l = get.split('&');
-        x = 0;
-        for(var i in l){
-            if (l.hasOwnProperty(i)){
-                get = l[i].split('=');
-                _GET[get[0]] = get[1];
-                x++;
-            }
-        }
-    }
-    proxy = _GET['proxy'];
-})()
+var _GET = {referer: '', proxy: ''};
+(function get_params () {
+	var get, x, l, i;
+	get = String(window.location);
+	x = get.indexOf('?');
+	if ( x != -1 ) {
+		l = get.length;
+		get = get.substr(x + 1, l - x);
+		l = get.split('&');
+		x = 0;
+		for ( i in l ) {
+			if ( l.hasOwnProperty(i) ) {
+				get = l[i].split('=');
+				_GET[get[0]] = get[1];
+				x++;
+			}
+		}
+	}
+	deviceProxy = _GET['proxy'];
+})();
 
 
 
@@ -55,21 +66,31 @@ _GET['proxy'] = '';
 /**
  * Main page load handler
  */
-function onPageLoad () {
+window.onload = function onPageLoad () {
     echo('******** STB STARTED ********');
     try {
-        loading_screen = document.getElementById('loading');
-        loading_screen.style.display = 'block';
-        curLangIdx = getCurrentLanguage();
-        if(curLangIdx != 'ru'){
-            curLangIdx = 'en';
-        }
-        // get localization file
-        loadScript('lang/' + curLangIdx + '.js', function () {
-            // main css file
-            loadStyle(screen.height + '.css', function () {
+		$loadingScreen = document.getElementById('loading');
+		$loadingScreen.style.display = 'block';
+		var curLangIdx = getCurrentLanguage();
+		if ( curLangIdx != 'ru' && curLangIdx != 'uk' ) { curLangIdx = 'en'; }
+		// get content and interface languages
+		var data = gSTB.LoadUserData('ex.ua.data.json');
+		try {
+			data = JSON.parse(data);
+		} catch ( err ) {
+			echo('JSON.parse(LoadUserData("ex.ua.data.json")); -> ERROR ->' + err);
+			data = {contentLang: curLangIdx, interfaceLang: curLangIdx};
+			gSTB.SaveUserData('ex.ua.data.json', JSON.stringify(data));
+		}
+		echo(data, 'data JSON.parse(LoadUserData("ex.ua.data.json"))');
+		// set content lang
+		type_info = content[data.contentLang].type_info;
+		mainPageMenu = content[data.contentLang].mainPageMenu;
+
+		// get localization file
+        loadScript('lang/' + data.interfaceLang + '.js', function () {
                 echo(screen.width + "x" + screen.height, "screen resolution");
-                echo(curLangIdx, "current language");
+                echo(data, "current language");
                 try {
                     echo('main page init');
                     MainPage.handleInner=document.getElementById('MainPage');
@@ -84,28 +105,38 @@ function onPageLoad () {
                     // инициализируем плеер
                     MediaPlayer.handleInner = document.getElementById('pageMediaPlayer');
                     MediaPlayer.Init(MediaPlayer.handleInner);
+					MediaPlayer.currLang = data.interfaceLang;
                     
                     // локализация отдельных элементов
-                    MainPage.catTypeName = MainPage.handleInner.querySelector('.content  .mainContent  .servText');
-                    MainPage.catTypeName.innerHTML = lang.cat_video+':';
+                    MainPage.$catTypeName = MainPage.handleInner.querySelector('.content  .mainContent  .servText');
+                    MainPage.$catTypeName.innerHTML = lang.cat_video+':';
                     MainPage.handleInner.querySelector('.content  .rightContent .servText').innerHTML = lang.news;
                     
                     // изменение параметров при малых разрешениях
-                    rigth_menu_text_length = 200;
-                    if(screen.width == 720 ) rigth_menu_text_length = 117;
+                    rightMenuTextLength = 200;
+                    if(screen.width == 720 ) {rightMenuTextLength = 117;}
                     
                     // установка громкости
                     gSTB.InitPlayer();
-                    volume_setVolume(curVolume);
+					volume.init();
+					volume.setVol(volume.currVol);
+					gSTB.EnableServiceButton(true); // turn on system settings
+
+					// start emulation server side
+					if ( !EMULATION && DEBUG && DEBUG_NAME && DEBUG_SERVER ) {
+						if ( window.proxyServer ) {
+							proxy = new proxyServer();
+							proxy.init({name:DEBUG_NAME, host:DEBUG_SERVER});
+						}
+					}
                 } catch ( err ) {
                     echo('onPageLoad err '+err);
                 }
-            });
         });
     } catch ( err ) {
         echo('onPageLoad err '+err);
     }
-}
+};
 
 
 function mainEventListener ( event ) {
@@ -116,25 +147,33 @@ function mainEventListener ( event ) {
     switch ( event.code ) {
         // sound volume
         case KEYS.MUTE:
-            toggleMuteState();
-            echo('CSListManager.src='+CSListManager.src );
+			volume.toggleMute();
             break;
         case KEYS.VOLUME_UP:
-            if ( curVolume < 100 ) {curVolume = curVolume*1 + volume_CHANGE_STEP*1;}
-            volume_setVolume(curVolume);
+            if ( volume.currVol < 100 ) {volume.currVol = Number(volume.currVol) + volume.step;}
+			volume.setVol(volume.currVol);
             break;
         case KEYS.VOLUME_DOWN:
-            if ( curVolume > 0 ) {curVolume = curVolume*1 - volume_CHANGE_STEP*1;}
-            volume_setVolume(curVolume);
+            if ( volume.currVol > 0 ) {volume.currVol = Number(volume.currVol) - volume.step;}
+			volume.setVol(volume.currVol);
             break;
         case KEYS.POWER:
-            standby = !standby;
-            gSTB.StandBy(standby);
-            gSTB.ExecAction('front_panel ' + standby ? 'led-on' : 'led-off');
-            break;
-       case 121: // TV button - for debug
-            gSTB.Debug("\n<html><head>\n" + document.head.innerHTML + "\n</head>\n<body>\n" + document.body.innerHTML + "</body>\n</html>\n");
-            break;
+			standby = !standby;
+			if ( standby ) {
+				if ( currCPage === MediaPlayer ) { MediaPlayer.playPause(); }
+				if ( currCPage === MainPage && MainPage.newsList.isActive ) { MainPage.typeList.Activate(true); }
+				setTimeout(function () {gSTB.StandBy(standby);}, 1000);
+				gSTB.ExecAction('front_panel ' + standby ? 'led-on' : 'led-off');
+			} else {
+				gSTB.StandBy(standby);
+				setTimeout(function () {
+					if ( currCPage === MediaPlayer ) {
+						MediaPlayer.playPause();
+					}
+				}, 3000);
+				gSTB.ExecAction('front_panel ' + standby ? 'led-on' : 'led-off');
+			}
+			break;
         default:
             if ( currCPage && currCPage.EventHandler instanceof Function ) {
                 currCPage.EventHandler(event);
@@ -144,82 +183,83 @@ function mainEventListener ( event ) {
     }
 }
 
+/**
+ * init volume elements
+ */
+volume.init = function () {
+	this.$container = document.body.getElementsByClassName('volumeContainer')[0];
+	this.$mute = this.$container.querySelector('.mute');
+	this.$form = this.$container.querySelector('.volumeForm');
+	this.$bar = this.$form.querySelector('div');
+};
 
+/**
+ * set new volume level
+ * @param vol {Number} new volume level (from 0 to 100)
+ */
+volume.setVol = function ( vol ) {
+	echo('set volume=' + vol);
+	var step_px = screen.width === 1920 ? 15 : 10,   //  шаг смещения ползунка при изменении громкости на 5% (px)
+		vol_idx = vol / 5,
+		value;
 
-function volume_setVolume ( vol ) {
-    echo('set volume='+vol);
-        if(vol > 100 || vol < 0){vol = 100;}
-	if ( volume_timer ) {clearTimeout(volume_timer);}
-	hideMuteIco();
-	var step_px;   //  шаг смещения ползунка при изменении громкости на 5% (px)
-        step_px = 10;
-	var valueDiv = document.getElementById('volumeForm');
-	var bar = document.getElementById('volume_right');
-	var control = document.getElementById('volume_bar');
-	var vol_idx = vol / 5;
+	if ( vol > 100 || vol < 0 ) {vol = 100;}
+	if ( this.timerId ) {clearTimeout(this.timerId);}
+	this.$mute.style.display = "none";
+
 	if ( vol_idx ) {
-		var value = vol_idx * step_px - 5;
-		bar.style.width = value + 'px';
-		if ( muteValue ) {
-			toggleMuteState();                 // Выкл. MUTE (включить звук)
-		}
-		control.style.visibility = 'visible';
-                hideMuteIco();
-                volume_timer = setTimeout(volume_closeForm, volume_TIMEOUT);
-                valueDiv.style.visibility = "visible";
-	}
-	else {
-		control.style.visibility = 'hidden';
-                volume_closeForm();
-                showMuteIco();
+		value = vol_idx * step_px - 5;
+		this.$bar.style.width = value + 'px';
+		if ( this.muted ) { this.toggleMute(); }                // Выкл. MUTE (включить звук)
+		this.$form.style.display = 'block';
+		this.$mute.style.display = "none";
+		this.timerId = setTimeout(function () {
+			volume.timerId = null;
+			if ( volume.currVol >= 5 ) { volume.$form.style.display = "none"; }
+		}, this.timeout);
+	} else {
+		this.$form.style.display = 'none';
+		this.timerId = null;
+		if ( this.currVol >= 5 ) { this.$form.style.display = "none"; }
+		this.$mute.style.display = "block";
 	}
 	gSTB.SetVolume(vol);
-}
+};
 
-function volume_closeForm () {
-    volume_timer = null;
-    document.getElementById("volumeForm").style.visibility = "hidden";
-    if ( curVolume >= 5 ) {
-        document.getElementById('volume_bar').style.visibility = "hidden";
-    }
-}
+/**
+ * toogle mute state
+ */
+volume.toggleMute = function () {
+	if ( this.muted ) {
+		this.muted = false;
+		if ( this.currVol >= 5 ) {
+			this.$mute.style.display = "none";
+			clearTimeout(this.timerId);
+			this.$form.style.display = "block";
+			this.timerId = setTimeout(function () { volume.$form.style.display = "none"; }, this.timeout);
+		}
+	} else {
+		this.$mute.style.display = "block";
+		this.muted = true;
+		this.timerId = null;
+		if ( this.currVol >= 5 ) {this.$form.style.display = "none";}
+		if ( this.timerId ) { clearTimeout(this.timerId); }
+	}
+	gSTB.SetMute(this.muted ? 1 : 0);  // this function use numbers as params
+};
 
-function hideMuteIco () {
-    document.getElementById('mute').style.visibility = "hidden";
-}
 
-function showMuteIco () {
-    document.getElementById("mute").style.visibility = "visible";
-    volume_closeForm();
-}    
-      
-function toggleMuteState () {
-    if ( muteValue ) {
-        hideMuteIco();
-        muteValue = 0;            // MUTE Выкл. (звук включен)
-    }
-    else {
-        showMuteIco();
-        muteValue = 1;            // MUTE Вкл. (звук выключен)
-        if ( volume_timer ) {
-            clearTimeout(volume_timer);
-        }
-    }
-    gSTB.SetMute(muteValue);
-}      
       
      
 /*
  * инициализация первой страницы    
  */               
 MainPage.onInit = function(){
-    MainPage.mainContent_elem = MainPage.handleInner.querySelector('.content .mainContent');
-    MainPage.typeLst_elem     = MainPage.handleInner.querySelector('.content .typeLst');
-    MainPage.catTypeName      = MainPage.handleInner.querySelector('.content  .mainContent  .servText');
-    /** link to the object for limited scopes */
-    var self = this;
-    // ссылка на последний активный компонент чтобы активировать его когда мы вернемя на эту страницу
-    MainPage.LastActComp = null;
+	MainPage.$mainContent = MainPage.handleInner.querySelector('.content .mainContent');
+	MainPage.$typeList = MainPage.handleInner.querySelector('.content .typeLst');
+	MainPage.$catTypeName = MainPage.handleInner.querySelector('.content  .mainContent  .servText');
+	// ссылка на последний активный компонент чтобы активировать его когда мы вернемя на эту страницу
+	MainPage.LastActComp = null;
     
     //    создаем меню типов контента  (аудио, видео, картинки)
     MainPage.typeList = new CScrollList(MainPage);
@@ -230,16 +270,16 @@ MainPage.onInit = function(){
             echo('onMouseOver->MainPage.typeList.Activate(true);');
             MainPage.typeList.Activate(true);
         }
-    }
+    };
     
     // заполняем меню типов контента - (у нас всегда есть только 3 неменяющихся элемента)
     // и в то же время - навешиваем onCkick и onfocus на меню типов контента, категории и новинки
-    var listItem, 
-        id_numb         = 0,
-        cat_group_place = MainPage.handleInner.querySelector('.content .cat_group');
+	var $listItem,
+		id_numb = 0,
+		$catGroupPlace = MainPage.handleInner.querySelector('.content .cat_group');
     //    заполняем меню типов контента, используя кеш
-    for(var level_0 in main_page_menu){
-        listItem = element('div', {
+    for(var level_0 in mainPageMenu){
+        $listItem = element('div', {
             className:'ctypeLst',
             id:'typeItem'+id_numb
         });
@@ -248,12 +288,12 @@ MainPage.onInit = function(){
         // заполнение средних категорий содержимым (кино, музыка, картинки)
         var cat         = new CScrollList(MainPage),
             flag        = true, // флаг определения первого элемента в списке
-            cat_handler = cat_group_place.appendChild(element('div', {className:'cslist-main'}));
-        cat.Init(cat_handler);
+            $catHandler = $catGroupPlace.appendChild(element('div', {className:'cslist-main'}));
+        cat.Init($catHandler);
         
-        for(var level_1 in main_page_menu[level_0]){
-            cat.Add(main_page_menu[level_0][level_1].title,{
-                news_data:main_page_menu[level_0][level_1],
+        for(var level_1 in mainPageMenu[level_0]){
+            cat.Add(mainPageMenu[level_0][level_1].title,{
+                news_data:mainPageMenu[level_0][level_1],
                 focused:flag,
                 onclick : function(){
                     echo('middle column onClick func,');
@@ -269,36 +309,36 @@ MainPage.onInit = function(){
         }
         cat.iid = id_numb;
         // навешиваем активизацию элемента при наведении на него мыши
-        cat_handler.onmouseover = function(){
+        $catHandler.onmouseover = function(){
             var curr_cat = MainPage.typeList.Current().cat;
             echo('onMouseOver->cat_'+curr_cat.iid+' Active?='+curr_cat.isActive);
             if(!curr_cat.isActive){
                 echo('onMouseOver->cat_'+curr_cat.iid+'.Activate(true);');
                 curr_cat.Activate(true);
             }
-        }
+        };
         
         // навешиваем действие при наведении фокуса (обнвление правого меню)
         cat.onFocus = function(current, prev){
-        MainPage.catOnFocus(current, prev);
-        }
+        	MainPage.catOnFocus(current, prev);
+        };
 
         // изменение вида фокуса при деактивации списка (становится темный фокус)
         cat.onDeactivate = function(){
-            MainPage.mainContent_elem.className = 'crop mainContent notActive';
-        }
+            MainPage.$mainContent.className = 'crop mainContent notActive';
+        };
         cat.onActivate = function(){
-            MainPage.mainContent_elem.className = 'crop mainContent';
-        }  
+            MainPage.$mainContent.className = 'crop mainContent';
+        };
         
         // скрываем все, чтобы при старте активировать только нужный
         cat.Show(false);
         
-        MainPage.typeList.Add(listItem, {
+        MainPage.typeList.Add($listItem, {
             iid:id_numb,
-            data:main_page_menu[level_0],
+            data:mainPageMenu[level_0],
             cat:cat,
-            cat_handler:cat_handler,
+            $catHandler:$catHandler,
             onclick : function(){
                 // сбрасываем таймер в 0 чтобы нажатие сразу же повлекло за собой действия
                 if ( type_focus_timer ) {
@@ -311,72 +351,70 @@ MainPage.onInit = function(){
         });
         id_numb++;
     }
-    
-        
-/**
- * Hook method on focus item change at typeList
- * @param {Node} item the new focused item
- * @param {Node} previous the old focused item
- */
-    MainPage.typeList.onFocus = function(item, previous){
-        var cat_name = [lang.cat_video, lang.cat_music, lang.cat_images];
-        echo('we are going to show '+item.iid);
-        MainPage.catTypeName.innerHTML = cat_name[item.iid]+':';
-        item.cat.Show(true);
-        if(previous !== undefined && previous !== null){
-            echo('we are going to hide '+previous.iid);   
-            previous.cat.Show(false);
-        }
-        // задержка на втором меню при onFocus = 500. Изменяем её на 5, чтобы убрать эффект каскада задержек
-        MainPage.typeList.actionFlag = true;
-        MainPage.catOnFocus(item.cat.Current());
-    }
-    
-    MainPage.typeList.onDeactivate = function(){
-        MainPage.typeLst_elem.className = 'typeLst notActive';
-    }
-    
-    MainPage.typeList.onActivate = function(){
-        MainPage.typeLst_elem.className = 'typeLst';
-    }   
 
 
-/**
- * Hook method on focus item change at categoryList
- * @param {Node} item the new focused item
- */
-    MainPage.catOnFocus = function(item){
-        var delay_time = 500;
-        echo('MainPage.categoryList.onFocus delay_time = 500;');
-        if(MainPage.typeList.actionFlag){
-            delay_time = 0;
-            echo('MainPage.categoryList.onFocus  NOW delay_time = 0;');
-            MainPage.typeList.actionFlag = false;
-        } 
-        if ( cat_focus_timer ) {
-            clearTimeout(cat_focus_timer);
-        }
-        cat_focus_timer = setTimeout(function(){
-            if(item.news_data.news_cache[0].img_src){
-                // для данной категории данные в кеше есть, - подставляем эти данные в элементы списка новинок
-                MainPage.newsList.img1.firstChild.src = item.news_data.news_cache[1].img_src;
-                MainPage.newsList.img2.firstChild.src = item.news_data.news_cache[2].img_src;
-                MainPage.newsList.img3.firstChild.src = item.news_data.news_cache[3].img_src;
-                MainPage.newsList.img0.firstChild.src = item.news_data.news_cache[0].img_src;
-                                    
-                MainPage.newsList.img0.news_link = item.news_data.news_cache[0].news_link;
-                MainPage.newsList.img1.news_link = item.news_data.news_cache[1].news_link;
-                MainPage.newsList.img2.news_link = item.news_data.news_cache[2].news_link;
-                MainPage.newsList.img3.news_link = item.news_data.news_cache[3].news_link;
-                echo('add news from cache');
-            }else{
-                // переменная, содержащая ссыылку на текущий элемент - используется в обработке после получения ajax
-                MainPage.currData = item;
-                // данных в кеше нет, шлем запрос с последующей обработкой и заполнением в парсере
-                ajax ( 'get', exURL+'/rss/'+item.news_data.rss, MainPage.rssParser,{charset:'utf-8'},'xml' );
-            }
-        },delay_time);
-    }
+	/**
+	 * Hook method on focus item change at typeList
+	 * @param {Node} item the new focused item
+	 * @param {Node} previous the old focused item
+	 */
+	MainPage.typeList.onFocus = function ( item, previous ) {
+		var cat_name = [lang.cat_video, lang.cat_music, lang.cat_images];
+		echo('we are going to show ' + item.iid);
+		MainPage.$catTypeName.innerHTML = cat_name[item.iid] + ':';
+		item.cat.Show(true);
+		if ( previous !== undefined && previous !== null ) {
+			echo('we are going to hide ' + previous.iid);
+			previous.cat.Show(false);
+		}
+		// задержка на втором меню при onFocus = 500. Изменяем её на 5, чтобы убрать эффект каскада задержек
+		MainPage.typeList.actionFlag = true;
+		MainPage.catOnFocus(item.cat.Current());
+	};
+
+	MainPage.typeList.onDeactivate = function () {
+		MainPage.$typeList.className = 'typeLst notActive';
+	};
+
+	MainPage.typeList.onActivate = function () {
+		MainPage.$typeList.className = 'typeLst';
+	};
+
+
+	/**
+	 * Hook method on focus item change at categoryList
+	 * @param {Node} item the new focused item
+	 */
+	MainPage.catOnFocus = function ( item ) {
+		var delay_time = 500;
+		echo('MainPage.categoryList.onFocus delay_time = 500;');
+		if ( MainPage.typeList.actionFlag ) {
+			delay_time = 0;
+			echo('MainPage.categoryList.onFocus  NOW delay_time = 0;');
+			MainPage.typeList.actionFlag = false;
+		}
+		if ( cat_focus_timer ) { clearTimeout(cat_focus_timer); }
+		cat_focus_timer = setTimeout(function () {
+			if ( item.news_data.news_cache[0].img_src ) {
+				// для данной категории данные в кеше есть, - подставляем эти данные в элементы списка новинок
+				MainPage.newsList.img1.firstChild.src = item.news_data.news_cache[1].img_src;
+				MainPage.newsList.img2.firstChild.src = item.news_data.news_cache[2].img_src;
+				MainPage.newsList.img3.firstChild.src = item.news_data.news_cache[3].img_src;
+				MainPage.newsList.img0.firstChild.src = item.news_data.news_cache[0].img_src;
+
+				MainPage.newsList.img0.news_link = item.news_data.news_cache[0].news_link;
+				MainPage.newsList.img1.news_link = item.news_data.news_cache[1].news_link;
+				MainPage.newsList.img2.news_link = item.news_data.news_cache[2].news_link;
+				MainPage.newsList.img3.news_link = item.news_data.news_cache[3].news_link;
+				echo('add news from cache');
+			} else {
+				// переменная, содержащая ссыылку на текущий элемент - используется в обработке после получения ajax
+				MainPage.currData = item;
+				// данных в кеше нет, шлем запрос с последующей обработкой и заполнением в парсере
+				ajax('get', exURL + '/rss/' + item.news_data.rss, MainPage.rssParser, {charset: 'utf-8'}, 'xml');
+			}
+		}, delay_time);
+	};
     
     
     // список новых фильмов
@@ -388,7 +426,7 @@ MainPage.onInit = function(){
             echo('onMouseOver->MainPage.newsList.Activate(true);');
             MainPage.newsList.Activate(true);
         }
-    }
+    };
     
     // обработка нажатия на новинку - с последующим определением является ли новинка каталогом либо обьектом
     MainPage.newsList.onClickFunc = function(){
@@ -400,18 +438,18 @@ MainPage.onInit = function(){
             addtime     : '',
             url         : MainPage.newsList.Current().news_link,
             iid         : ''
-        }
+        };
         MainPage.LastActComp = MainPage.newsList;
         MainPage.messageHint = new CModalHint(MainPage, lang.loading);
         CSListManager.Open(data);
-    }
+    };
 
     
     // создание и предварительное заполнение новинок
-    for(var content_type_level in main_page_menu){
-        for(var cats_level in main_page_menu[content_type_level]){
+    for(var content_type_level in mainPageMenu){
+        for(var cats_level in mainPageMenu[content_type_level]){
             for(var i=0;i<4;i++){
-                main_page_menu[content_type_level][cats_level].news_cache[i] = {img_src:'',news_link:''};
+                mainPageMenu[content_type_level][cats_level].news_cache[i] = {img_src:'',news_link:''};
             }
         }
     }
@@ -430,10 +468,10 @@ MainPage.onInit = function(){
     MainPage.newsList.onDeactivate = function(){
           MainPage.handleInner.querySelector('.content .rightContent').className = 'crop rightContent notActive';
           echo('MainPage.newsList.onDeactivate');
-    }  
+    };
     MainPage.newsList.onActivate = function(){
         MainPage.handleInner.querySelector('.content .rightContent').className = 'crop rightContent';
-    }    
+    };
     
     //    строка поиска и хлебных крошек
     MainPage.SearchBar = new CSearchBar(MainPage);
@@ -444,155 +482,147 @@ MainPage.onInit = function(){
      * запуск поиска
      * @param {String} value введенный поисковый запрос
      */
-    MainPage.SearchBar.onSearch = function ( value ) {
-        echo(value, 'MainPage.SearchBar.onSearch');
-        var data = {
-        title : value,
-        value : encodeURI(value),
-        url   : type_info[ROOT_GLOBAL_SEARCH].url_start + encodeURI(value),
-        type  : ROOT_GLOBAL_SEARCH }
-        
-        ListPage.start(data);
-        MainPage.LastActComp = MainPage.typeList.Current().cat;
-    }
-    
-    
-    /**
+	MainPage.SearchBar.onSearch = function ( value ) {
+		echo(value, 'MainPage.SearchBar.onSearch');
+		var data = {
+			title : value,
+			value : encodeURI(value),
+			url   : type_info[ROOT_GLOBAL_SEARCH].url_start + encodeURI(value),
+			type  : ROOT_GLOBAL_SEARCH
+		};
+		ListPage.start(data);
+		MainPage.LastActComp = MainPage.typeList.Current().cat;
+	};
+
+
+	/**
      *  Get search value if it was changed
      *  @param hint {String} value search value
      */
-    MainPage.SearchBar.onHint = function(hint){
-        // посчитаем количество пробелов в начале строки
-        var diff = hint.length - hint.trimLeft().length;
-        var clean_hint=hint.trimLeft();
-        echo('onHint-> hint =->' + hint+'<-');
-        if(hint == ''){
-            echo('empty value');
-            MainPage.SearchBar.SetHint('');
-        } else {
-            //  запрос на получение подсказок
-            ajax('get','http://www.ex.ua/r_search_hint?s='+encodeURI(clean_hint), function(html){
-                echo('html=\n'+html);
-                if(html != ''){
-                    // меняем на первый подходящий результат с учетом пробелов
-                    var sug_arr = html.split('\n');
-                    // проверяем соответствие языка по соответствию начала hint и ключевика
-                    if(clean_hint == sug_arr[0].substr(0,clean_hint.length)){
-                        MainPage.SearchBar.SetHint(hint.substr(0,diff)+sug_arr[0]);
-                    }
-                    else{
-                        MainPage.SearchBar.SetHint('');
-                    }
-                } else { 
-                    MainPage.SearchBar.SetHint(''); 
-                }
-            });
-        }
-    }
-    // при вызове поиска - открытие клавиатуры
-    MainPage.SearchBar.onActivate = function(){
-       gSTB.EnableVKButton(true);     
-    } 
-    // при деактиваци поиска - активация элемента среднего списка
-    MainPage.SearchBar.onDeactivate = function(){
-       gSTB.EnableVKButton(false);  
-        setTimeout(function(){
-            MainPage.typeList.Current().cat.Activate(true);
-        },5) 
-    } 
-    
-    
+	MainPage.SearchBar.onHint = function ( hint ) {
+		echo('onHint-> hint =->' + hint + '<-');
+		// посчитаем количество пробелов в начале строки
+		var diff = hint.length - hint.trimLeft().length,
+			clean_hint = hint.trimLeft();
+		if ( !hint ) {
+			echo('empty value');
+			MainPage.SearchBar.SetHint('');
+		} else {
+			//  запрос на получение подсказок
+			ajax('get', 'http://www.ex.ua/r_search_hint?s=' + encodeURI(clean_hint), function ( html ) {
+				echo('html=\n' + html);
+				var sug_arr = html.split('\n');
+				if ( sug_arr && sug_arr[0] && clean_hint == sug_arr[0].substr(0, clean_hint.length) ) {
+					// меняем на первый подходящий результат с учетом пробелов
+					// проверяем соответствие языка по соответствию начала hint и ключевика
+					MainPage.SearchBar.SetHint(hint.substr(0, diff) + sug_arr[0]);
+				} else {
+					MainPage.SearchBar.SetHint('');
+				}
+			});
+		}
+	};
 
-/**
- * очистка содержимого кеша (чистятся данные "новинок") 
- */
-    MainPage.actionRefresh = function(){
-        echo('start refresh main_page_menu.video[0].news_cache[0].img_src='+main_page_menu.video[0].news_cache[0].img_src);
-        for(var content_type_level in main_page_menu){
-            for(var cats_level in main_page_menu[content_type_level]){
-                for(var i=0;i<4;i++){
-                    main_page_menu[content_type_level][cats_level].news_cache[i].news_link = '';
-                    main_page_menu[content_type_level][cats_level].news_cache[i].img_src = '';
-                }
-            }
-        }
-        // убираем задержку - она ни к чему
-        MainPage.typeList.actionFlag = true;
-        MainPage.typeList.Current().cat.onFocus(MainPage.typeList.Current().cat.Current());
-        echo('refresh is over main_page_menu.video[0].news_cache[0].img_src='+main_page_menu.video[0].news_cache[0].img_src);
-    }
-    
-    
-    // панель кнопок
-    MainPage.BPanel = new CButtonPanel(MainPage);
-    MainPage.BPanel.Init('img/' + screen.height, MainPage.handleInner.querySelector('#MainPage .footer div.cbpanel-main'));
-    MainPage.BPanel.Add(KEYS.REFRESH, 'ico_refresh.png', lang.refresh,   MainPage.actionRefresh);
+	// при вызове поиска - открытие клавиатуры
+	MainPage.SearchBar.onActivate = function () { gSTB.EnableVKButton(true); };
+
+	// при деактиваци поиска - активация элемента среднего списка
+	MainPage.SearchBar.onDeactivate = function () {
+		gSTB.EnableVKButton(false);
+		setTimeout(function () {
+			MainPage.typeList.Current().cat.Activate(true);
+		}, 5)
+	};
 
 
-/**
- * Парсер для составления списка фильмов/аудио/картинок.
- * @param {String} data содержание страницы меню сайта (а именно - видео/картинки/аудио)
- * @param {int} status статус полученного ответа
- */
-    MainPage.rssParser = function(data, status){
-        echo('rssParser');
-        var place=MainPage.currData.news_data;
-        echo('place = '+place);
-        var i=0;
-        // получение URL картинок из полученных дaнных и их кеширование
-        for( i=0; i<4; i++){
-            // получаем из xml описание с ссылкой на картинку
-            var img_src   = data.getElementsByTagName('description').item(i+1);
-            var news_link = data.getElementsByTagName('link').item(i+1).firstChild.nodeValue;
-            if(img_src == null || img_src.firstChild == null){
-                place.news_cache[i].img_src='img/'+screen.height+'/ex_ua_noposter.png?400';
-            } else {
-                img_src = img_src.firstChild.nodeValue;
-                echo('description->'+img_src);
-                if(img_src.indexOf("<img")<0 || img_src.indexOf("gif")>0){
-                    place.news_cache[i].img_src='img/'+screen.height+'/ex_ua_noposter.png?400';
-                }else{
-                    // вырезание URL из строки вида  <a href='http://www.ex.ua/view/4?r=2'><img src='http://fs181.www.ex.ua/show/2/2.jpg?200' width='135' height='200'></a>
-                    img_src=img_src.substring(img_src.indexOf("<img")+10, img_src.indexOf("width"));
-                    img_src=img_src.substring(0, img_src.indexOf("?"));
-                    // сохраняем ссылки на картинки в кеш с указанием размера
-                    place.news_cache[i].img_src=img_src+'?400';
-                    echo('img main_page_menu.video[category_index].news_cache[i].img_src='+place.news_cache[i].img_src);
-                }
-            }
-        // заполняем URL по которым можно перейти на новости
-        place.news_cache[i].news_link = news_link;
-        }
-        // заполняем список новыми данными (картинки новых фильмов/музыки/фото) и ссылками на новинки
-        var counter = 0;
-        MainPage.newsList.Each(function(item){
-            // проверяем размер картинки 
-            checkForGiantImg(place.news_cache[counter].img_src, MAX_READABLE_IMAGE_WEIGHT, place.news_cache[counter], item.firstChild );    
-            item.news_link = place.news_cache[counter].news_link;
-            echo('change cache elem');
-            counter++;
-        });
-        // убрать загрузчик
-        if(loading_screen.style.display === 'block'){setTimeout(function(){loading_screen.style.display = 'none';},100)}
-    }
-    
+	/**
+	 * очистка содержимого кеша (чистятся данные "новинок")
+	 */
+	MainPage.actionRefresh = function () {
+		echo('start refresh mainPageMenu.video[0].news_cache[0].img_src=' + mainPageMenu.video[0].news_cache[0].img_src);
+		for ( var content_type_level in mainPageMenu ) {
+			for ( var cats_level in mainPageMenu[content_type_level] ) {
+				for ( var i = 0; i < 4; i++ ) {
+					mainPageMenu[content_type_level][cats_level].news_cache[i].news_link = '';
+					mainPageMenu[content_type_level][cats_level].news_cache[i].img_src = '';
+				}
+			}
+		}
+		// убираем задержку - она ни к чему
+		MainPage.typeList.actionFlag = true;
+		MainPage.typeList.Current().cat.onFocus(MainPage.typeList.Current().cat.Current());
+		echo('refresh is over mainPageMenu.video[0].news_cache[0].img_src=' + mainPageMenu.video[0].news_cache[0].img_src);
+	};
 
-    
-/**
- * запуск первой страницы с первоначальным добавлением элементов и установкой фокуса
- */
-    MainPage.start = function(){
-        MainPage.Show(true, null);
-        echo('MainPage.start()');
-        // активировать меню типа контента (то что слева)
-        MainPage.newsList.onDeactivate();
-        // показать данные первого типа (т.е заполнение значениями по умолчанию)
-        MainPage.typeList.onFocus(MainPage.typeList.FindOne());
-        MainPage.typeList.Activate(true, true);
-    }
-    // запускаем отображение первой страницы
-    MainPage.start();
-}
+	MainPage.actionLang = function () {
+		echo('MainPage.actionLang');
+		new CModalSelectLang(MainPage, lang.changeLang, '', {});
+	};
+
+	// панель кнопок
+	MainPage.BPanel = new CButtonPanel(MainPage);
+	MainPage.BPanel.Init('img/' + screen.height, MainPage.handleInner.querySelector('#MainPage .footer div.cbpanel-main'));
+	MainPage.BPanel.Add(KEYS.REFRESH, 'ico_refresh.png', lang.refresh, MainPage.actionRefresh);
+	MainPage.BPanel.Add(KEYS.F3, 'ico_f3.png', lang.changeLang, MainPage.actionLang);
+
+	/**
+	 * Парсер для составления списка фильмов/аудио/картинок.
+	 * @param {String} data содержание страницы меню сайта (а именно - видео/картинки/аудио)
+	 */
+	MainPage.rssParser = function ( data ) {
+		echo('rssParser');
+		var place = MainPage.currData.news_data;
+		echo('place = ' + place);
+		// получение URL картинок из полученных дaнных и их кеширование
+		for ( var i = 0; i < 4; i++ ) {
+			// получаем из xml описание с ссылкой на картинку
+			var img_src = data.getElementsByTagName('description').item(i + 1);
+			var news_link = data.getElementsByTagName('link').item(i + 1) || '';
+			if ( img_src == null || img_src.firstChild == null || news_link == '' ) {
+				place.news_cache[i].img_src = 'img/' + screen.height + '/ex_ua_noposter.png?400';
+			} else {
+				news_link = news_link.firstChild.nodeValue;
+				img_src = img_src.firstChild.nodeValue;
+				echo('description->' + img_src);
+				if ( img_src.indexOf("<img") < 0 || img_src.indexOf("gif") > 0 ) {
+					place.news_cache[i].img_src = 'img/' + screen.height + '/ex_ua_noposter.png?400';
+				} else {
+					// вырезание URL из строки вида  <a href='http://www.ex.ua/view/4?r=2'><img src='http://fs181.www.ex.ua/show/2/2.jpg?200' width='135' height='200'></a>
+					img_src = img_src.substring(img_src.indexOf("<img") + 10, img_src.indexOf("width"));
+					img_src = img_src.substring(0, img_src.indexOf("?"));
+					// сохраняем ссылки на картинки в кеш с указанием размера
+					place.news_cache[i].img_src = img_src + '?400';
+					echo('img mainPageMenu.video[category_index].news_cache[i].img_src=' + place.news_cache[i].img_src);
+				}
+			}
+			// заполняем URL по которым можно перейти на новости
+			place.news_cache[i].news_link = news_link;
+		}
+		// заполняем список новыми данными (картинки новых фильмов/музыки/фото) и ссылками на новинки
+		var counter = 0;
+		MainPage.newsList.Each(function ( item ) {
+			// проверяем размер картинки
+			checkForGiantImg(place.news_cache[counter].img_src, MAX_READABLE_IMAGE_WEIGHT, place.news_cache[counter], item.firstChild);
+			item.news_link = place.news_cache[counter].news_link;
+			echo('change cache elem');
+			counter++;
+		});
+		// убрать загрузчик
+		if ( $loadingScreen.style.display === 'block' ) {setTimeout(function () {$loadingScreen.style.display = 'none';}, 100)}
+	};
+
+
+	/**
+	 * запуск первой страницы с первоначальным добавлением элементов и установкой фокуса
+	 */
+	(function () {
+		MainPage.Show(true, null);
+		echo('MainPage.start()');
+		MainPage.newsList.onDeactivate();   // активировать меню типа контента (то что слева)
+		MainPage.typeList.onFocus(MainPage.typeList.FindOne());   // показать данные первого типа (т.е заполнение значениями по умолчанию)
+		MainPage.typeList.Activate(true, true);
+	})();
+};
 
 
 MainPage.onShow = function(){
@@ -600,133 +630,128 @@ MainPage.onShow = function(){
     if(MainPage.SearchBar.items.hint.value && MainPage.SearchBar.items.hint.value !== lang.lang_default_hint){
         MainPage.SearchBar.items.hint.value = '';
     }
-}
+};
 
 /**
  * Events handler entry point
  * @param {Event} event global event object
  */
-MainPage.EventHandler = function(event){
-    echo('MainPage.EventHandler->activation status:');
-    echo('-typeList:  '+MainPage.typeList.isActive);
-    echo('-newsList:  '+MainPage.newsList.isActive);
-    echo('-SearchBar: '+MainPage.SearchBar.isActive);
-        
-    if (event.code === KEYS.REFRESH){
-        MainPage.actionRefresh();
-    }
-    if ( MainPage.SearchBar.isActive ) {
-        switch ( event.code ) {
-            case KEYS.RIGHT:
-                // дополнение написанного в поисковой строке из подсказки
-                echo('MainPage.SearchBar.items.hint.value='+MainPage.SearchBar.items.hint.value);
-                echo('MainPage.SearchBar.items.text.value='+MainPage.SearchBar.items.text.value);
-                setTimeout(function(){
-                    if(MainPage.SearchBar.items.hint.value != ''){
-                        MainPage.SearchBar.items.text.value=MainPage.SearchBar.items.hint.value;
-                        echo('new MainPage.SearchBar.items.text.value'+MainPage.SearchBar.items.text.value);
-                    }
-                }, 350);
-                break;
-            case KEYS.DOWN:
-            case KEYS.F2:
-            case KEYS.EXIT:
-                echo('SearchBar down)))');
-                MainPage.typeList.Current().cat.Activate(true);
-                event.preventDefault();
-                break; 
-        }
-    }    
-    else 
-    if ( MainPage.typeList.isActive ) {
-        switch ( event.code ) {
-            case KEYS.PAGE_DOWN:
-            case KEYS.PAGE_UP:
-                break;
-            case KEYS.LEFT:
-                break;
-            case KEYS.OK:    
-            case KEYS.RIGHT:
-                echo('To the right typeList)))');
-                MainPage.typeList.Current().cat.Activate(true);
-                break;
-            case KEYS.EXIT:
-            case KEYS.BACK:    
-                MainPage.actionExit();
-                break;
-            case KEYS.INFO:
-                if(MainPage.typeList.activeItem.iid === 1){
-                new CModalAlert(MainPage, 'Info', 'Program version: '+version, lang.back_action, function(){});
-                }
-                break;
-            default:
-                MainPage.typeList.EventHandler(event);
-        }
-    } 
-    else
-    if ( MainPage.typeList.Current().cat.isActive ) {
-        echo('-MainPage.typeList.Current().cat.isActive true');
-        var curr_cat = MainPage.typeList.Current().cat;
-        switch ( event.code ) {
-            case KEYS.LEFT:
-                echo('To the left categoryList)))');
-                MainPage.typeList.Activate(true);
-                break;
-            case KEYS.RIGHT:
-                echo('To the right categoryList)))');
-                MainPage.newsList.Activate(true);
-                break;  
-            case KEYS.OK:
-                echo('keys->ok');
-                curr_cat.Current().onclick();
-                break;
-            case KEYS.EXIT:
-            case KEYS.BACK:    
-                MainPage.actionExit();
-                break;
-            default:
-                curr_cat.EventHandler(event);
-        }
-    } 
-    else
-    if ( MainPage.newsList.isActive ) {
-        var current_news = MainPage.newsList.Current();
-        switch ( event.code ) {
-            case KEYS.PAGE_DOWN:
-            case KEYS.PAGE_UP:
-                break;
-            case KEYS.LEFT:
-                echo('To the LEFT typeList))) current_news.column='+current_news.column);
-                if(current_news.column){MainPage.newsList.Focused(MainPage.newsList.Next('',true),true);} else {
-                MainPage.typeList.Current().cat.Activate(true);}
-                break;
-            case KEYS.RIGHT:
-                echo('To the RIGHT typeList))) current_news.column='+current_news.column);
-                if(!current_news.column){MainPage.newsList.Focused(MainPage.newsList.Next(),true);echo('r->next');}
-                break;    
-            case KEYS.UP:
-                echo('To the UP typeList))) current_news.row='+current_news.row);
-                if(current_news.row){MainPage.newsList.Focused(MainPage.newsList.Next('',true,2),true);}  
-                break;   
-            case KEYS.DOWN:
-                echo('To the DOWN typeList))) current_news.row='+current_news.row);
-                if(!current_news.row){MainPage.newsList.Focused(MainPage.newsList.Next('',false,2),true);}
-                break;  
-            case KEYS.OK:
-                MainPage.newsList.onClickFunc();
-                break;
-            case KEYS.EXIT:
-            case KEYS.BACK:    
-                MainPage.actionExit();
-                break;
-            default:
-                MainPage.newsList.EventHandler(event);
-        }
-    } 
-    
-        if ( event.code === KEYS.F2 )    {
-        MainPage.SearchBar.Activate(true);
-    }
+MainPage.EventHandler = function ( event ) {
+	echo('MainPage.EventHandler->activation status:');
+	echo('-typeList:  ' + MainPage.typeList.isActive);
+	echo('-newsList:  ' + MainPage.newsList.isActive);
+	echo('-SearchBar: ' + MainPage.SearchBar.isActive);
+
+	if ( event.code === KEYS.REFRESH ) { MainPage.actionRefresh(); }
+	if ( event.code === KEYS.F3 ) { MainPage.actionLang(); }
+
+	if ( MainPage.SearchBar.isActive ) {
+		switch ( event.code ) {
+			case KEYS.RIGHT:
+				// дополнение написанного в поисковой строке из подсказки
+				echo('MainPage.SearchBar.items.hint.value=' + MainPage.SearchBar.items.hint.value);
+				echo('MainPage.SearchBar.items.text.value=' + MainPage.SearchBar.items.text.value);
+				setTimeout(function () {
+					if ( MainPage.SearchBar.items.hint.value != '' ) {
+						MainPage.SearchBar.items.text.value = MainPage.SearchBar.items.hint.value;
+						echo('new MainPage.SearchBar.items.text.value' + MainPage.SearchBar.items.text.value);
+					}
+				}, 350);
+				break;
+			case KEYS.DOWN:
+			case KEYS.F2:
+			case KEYS.EXIT:
+				echo('SearchBar down)))');
+				MainPage.typeList.Current().cat.Activate(true);
+				event.preventDefault();
+				break;
+		}
+	} else if ( MainPage.typeList.isActive ) {
+		switch ( event.code ) {
+			case KEYS.PAGE_DOWN:
+			case KEYS.PAGE_UP:
+				break;
+			case KEYS.LEFT:
+				break;
+			case KEYS.OK:
+			case KEYS.RIGHT:
+				echo('To the right typeList)))');
+				MainPage.typeList.Current().cat.Activate(true);
+				break;
+			case KEYS.EXIT:
+			case KEYS.BACK:
+				MainPage.actionExit();
+				break;
+			case KEYS.INFO:
+				var refererPage = (_GET['referrer'] || '').indexOf('online-media.infomir.com.ua') === -1 ? '' : '<br>Source: Online media';
+				new CModalAlert(MainPage, 'Info', 'Program version: ' + version + refererPage, lang.back_action, function () {});
+				break;
+			default:
+				MainPage.typeList.EventHandler(event);
+		}
+	} else if ( MainPage.typeList.Current().cat.isActive ) {
+		echo('-MainPage.typeList.Current().cat.isActive true');
+		var curr_cat = MainPage.typeList.Current().cat;
+		switch ( event.code ) {
+			case KEYS.LEFT:
+				echo('To the left categoryList)))');
+				MainPage.typeList.Activate(true);
+				break;
+			case KEYS.RIGHT:
+				echo('To the right categoryList)))');
+				MainPage.newsList.Activate(true);
+				break;
+			case KEYS.OK:
+				echo('keys->ok');
+				curr_cat.Current().onclick();
+				break;
+			case KEYS.EXIT:
+			case KEYS.BACK:
+				MainPage.actionExit();
+				break;
+			default:
+				curr_cat.EventHandler(event);
+		}
+	} else if ( MainPage.newsList.isActive ) {
+		var current_news = MainPage.newsList.Current();
+		switch ( event.code ) {
+			case KEYS.PAGE_DOWN:
+			case KEYS.PAGE_UP:
+				break;
+			case KEYS.LEFT:
+				echo('To the LEFT typeList))) current_news.column=' + current_news.column);
+				if ( current_news.column ) {MainPage.newsList.Focused(MainPage.newsList.Next('', true), true);} else {
+					MainPage.typeList.Current().cat.Activate(true);
+				}
+				break;
+			case KEYS.RIGHT:
+				echo('To the RIGHT typeList))) current_news.column=' + current_news.column);
+				if ( !current_news.column ) {
+					MainPage.newsList.Focused(MainPage.newsList.Next(), true);
+					echo('r->next');
+				}
+				break;
+			case KEYS.UP:
+				echo('To the UP typeList))) current_news.row=' + current_news.row);
+				if ( current_news.row ) {MainPage.newsList.Focused(MainPage.newsList.Next('', true, 2), true);}
+				break;
+			case KEYS.DOWN:
+				echo('To the DOWN typeList))) current_news.row=' + current_news.row);
+				if ( !current_news.row ) {MainPage.newsList.Focused(MainPage.newsList.Next('', false, 2), true);}
+				break;
+			case KEYS.OK:
+				MainPage.newsList.onClickFunc();
+				break;
+			case KEYS.EXIT:
+			case KEYS.BACK:
+				MainPage.actionExit();
+				break;
+			default:
+				MainPage.newsList.EventHandler(event);
+		}
+	}
+
+	if ( event.code === KEYS.F2 ) { MainPage.SearchBar.Activate(true); }
 };
 
 
@@ -734,13 +759,13 @@ MainPage.EventHandler = function(event){
  * выход их приложения на то место, с которого приложение запустили
  */
 MainPage.actionExit = function () {
-        MainPage.exitMessage = new CModalConfirm(MainPage, lang.exit, lang.close_question, lang.cancel, function(){
-        MainPage.exitMessage.Show(false);
-    }, LANG_MEDIA_DEFAULT_OK, function(){
-          MediaPlayer.end();
-          window.location = decodeURIComponent(_GET['referrer']);
-    });
-}
+	MainPage.exitMessage = new CModalConfirm(MainPage, lang.exit, lang.close_question, lang.cancel, function () {
+		MainPage.exitMessage.Show(false);
+	}, LANG_MEDIA_DEFAULT_OK, function () {
+		MediaPlayer.end();
+		window.location = decodeURIComponent(_GET['referrer']);
+	});
+};
 
 
 
@@ -761,8 +786,8 @@ ListPage.onInit = function(){
     // используем собственные иконки для сообщений
     CMODAL_IMG_PATH = 'img/'+screen.height;
     // перекрывающее ListPage сообщение о содержании фильма
-    this.infoMessage = ListPage.handleInner.querySelector('.infoMessage');
-    this.Info.Init(ListPage.infoMessage);
+    this.$infoMessage = ListPage.handleInner.querySelector('.infoMessage');
+    this.Info.Init(ListPage.$infoMessage);
     this.Info.Show(false, false);
     
     // инициализируем меню предварительного просмотра
@@ -903,7 +928,7 @@ ListPage.onInit = function(){
                     url         : '',
                     iid         : '',
                     type        : TYPE_BACK
-                }
+                };
                 // добавим элемент выхода на более верхний уровень
                 somelistItem = element('div',{ className: 'back' },'..');
                 current.Add(somelistItem, {
@@ -989,7 +1014,7 @@ ListPage.onInit = function(){
                     url         : '',
                     iid         : '',
                     type        : TYPE_BACK
-                }
+                };
                 // добавим элемент выхода на более верхний уровень
                 somelistItem = element('div',{ className: 'back' },'..');
                 current.Add(somelistItem, {
@@ -1007,15 +1032,16 @@ ListPage.onInit = function(){
         }
         current.Activate(true);
         CSListManager.Current().onFocus(CSListManager.Current().Current(),true);
-    }
+    };
     
     
     
     /**
      * перерисовка правого меню (т.е. постера и описания) при получении соотв. элементом левого меню фокуса
      * @param {Object} current текущий элемент
+	 *  @param {Object} previous предыдущий элемент
      */
-    ListPage.onFocusAction = function(current){
+    ListPage.onFocusAction = function(current, previous){
         echo('list on focus');
         if(ListPage.isVisible){
             echo('ListPage.isVisible');
@@ -1035,7 +1061,7 @@ ListPage.onInit = function(){
                 cat_focus_timer = 0;
             },500);
         }
-    }
+    };
       
        
     /**
@@ -1044,7 +1070,7 @@ ListPage.onInit = function(){
     this.SearchBar = new CSearchBar(ListPage);
     this.SearchBar.Init('img/' + screen.height, ListPage.handleInner.querySelector('.header .csbar'), lang.list_default_hint);
     this.SearchBar.showAttr = 'table-cell';
-   
+
     /**
      * запуск поиска
      * @param {String} value введенный поисковый запрос
@@ -1071,7 +1097,7 @@ ListPage.onInit = function(){
         }
         CSListManager.Open(data);
         ListPage.breadCrumb.Show(true);
-    }
+    };
     
     
     /**
@@ -1105,13 +1131,13 @@ ListPage.onInit = function(){
                 }
             });
         }
-    }
+    };
     
     
     ListPage.SearchBar.onActivate = function () {
         ListPage.breadCrumb.Show(false);
         gSTB.EnableVKButton(true); 
-    }
+    };
     
     
     ListPage.SearchBar.onDeactivate = function(){
@@ -1120,21 +1146,22 @@ ListPage.onInit = function(){
         setTimeout(function(){
             CSListManager.Current().Activate(true);
         },5) 
-    } 
+    };
     
     
     // панель кнопок
     ListPage.BPanel = new CButtonPanel(ListPage);
     ListPage.BPanel.Init('img/' + screen.height, ListPage.handleInner.querySelector('.footer div.cbpanel-main'));
     ListPage.BPanel.btnMenu    = ListPage.BPanel.Add(KEYS.MENU,    'ico_menu.png',lang.main_menu, ListPage.actionMainMenu );
-    //ListPage.BPanel.btnEXIT    = ListPage.BPanel.Add(KEYS.BACK,  'ico_back.png',  lang.back_action,  ListPage.actionBack);
     ListPage.BPanel.btnF3      = ListPage.BPanel.Add(KEYS.F3,    'ico_f3.png',    lang.mark, ListPage.actionF3 );
     ListPage.BPanel.btnOnINFO  = ListPage.BPanel.Add(KEYS.INFO,    'ico_info.png',lang.film_description, ListPage.actionINFO );
     ListPage.BPanel.btnOffINFO = ListPage.BPanel.Add(KEYS.INFO,    'ico_info.png',lang.film_description_off, ListPage.actionBack );
+	ListPage.BPanel.btnOKINFO = ListPage.BPanel.Add(KEYS.OK,    'ico_ok.png',lang.toFiles, ListPage.objShortCut );
     ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnF3, true);
     ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, true);
     ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOffINFO, true);
-    
+	ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOKINFO, true);
+
     /**
      * заполнение списка содержимого обьекта (картинки, видео, аудио, - всё кроме папок)
      * @param {Object} obj содержит необходимые для заполнения правого меню и onClick() действия поля 
@@ -1183,7 +1210,7 @@ ListPage.onInit = function(){
                     url            : obj[cont_type][item].url,
                     size_in_bytes  : obj[cont_type][item].size_in_bytes,
                     resolution     : obj[cont_type][item].resolution
-                }                
+                };
                 // иконка радио
                 if(CSListManager.parentData.type == RADIO_OBJECT){
                     obj[cont_type][item].type = 'stream';
@@ -1236,7 +1263,7 @@ ListPage.onInit = function(){
             CSListManager.Current().Activate(true);
             CSListManager.Current().onFocus(CSListManager.Current().Current(),true);
 //        },100)
-    }
+    };
     
 
 /**
@@ -1245,30 +1272,38 @@ ListPage.onInit = function(){
 */ 
     ListPage.start = function(data){
         echo('we are starting page 2 with type '+data.type);
+		CSListManager.Open(data);
         ListPage.Show( true, MainPage );
-        CSListManager.Open(data);
-    }
+    };
     
     // инициализировать окно preview 
     ListPage.Preview.playerRect = ListPage.Preview.getRect();
     ListPage.Preview.Show(true, false);
-}
+};
 
-ListPage.onShow = function(){
-    echo('ListPage onShow'); 
-    if(CSListManager.src.length !== 0){
-        CSListManager.Current().Activate();
-    }
-    // init player preview window
-    MediaPlayer.setCoord(ListPage.Preview.playerRect.x, ListPage.Preview.playerRect.y, ListPage.Preview.playerRect.a, ListPage.Preview.playerRect.b);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_START);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_STOP);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_PAUSE);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_PROGRESS);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_ERROR);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_OK);
-    MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_EXIT);
-}
+ListPage.onShow = function () {
+	echo('ListPage onShow');
+	if ( CSListManager.src.length !== 0 ) { CSListManager.Current().Activate(); }
+	// clear search hint if this is not GSearch
+	if ( CSListManager.parentData.type !== ROOT_GLOBAL_SEARCH ) {
+		if ( this.SearchBar.items.text.value || this.SearchBar.items.hint.value && this.SearchBar.items.hint.value !== lang.list_default_hint ) {
+			this.SearchBar.items.hint.value = lang.list_default_hint;
+			this.SearchBar.items.text.value = '';
+		}
+	} else {
+		this.SearchBar.items.hint.value = '';
+		this.SearchBar.items.text.value = CSListManager.parentData.title;
+	}
+	// init player preview window
+	MediaPlayer.setCoord(ListPage.Preview.playerRect.x, ListPage.Preview.playerRect.y, ListPage.Preview.playerRect.a, ListPage.Preview.playerRect.b);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_START);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_STOP);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_PAUSE);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_PROGRESS);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_ERROR);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_OK);
+	MediaPlayer.Subscribe(ListPage, MediaPlayer.EVENT_EXIT);
+};
 
 
 /*
@@ -1281,7 +1316,7 @@ ListPage.actionExit = function () {
           MediaPlayer.end();
           window.location = decodeURIComponent(_GET['referrer']);
     });
-}
+};
 
 /**
  * выход на предыдущую страницу/переход по спискам текущей страницы
@@ -1300,12 +1335,24 @@ ListPage.actionBack = function(){
         }
         ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, false);
         ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOffINFO, true);
+		ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOKINFO, true);
         ListPage.Info.Show(false, true);
-        ListPage.SearchBar.Show(true,false);
         CSListManager.Current().Activate(true);
     }
-}
+};
 
+/**
+ * Shortcut from info page to files page (object)
+ */
+ListPage.objShortCut = function () {
+	var data = CSListManager.Current().Current().data,
+		type = data.type;
+	ListPage.actionBack();
+	if ( type !== MEDIA_TYPE_VIDEO && type !== MEDIA_TYPE_AUDIO && type !== MEDIA_TYPE_IMAGE ) {
+		CSListManager.Open(data);
+	}
+	//ListPage.Info.htmlData            // TODO: use this data to reduce 1 extra request
+};
 
 /**
  * быстрый выход на главную страницу
@@ -1316,6 +1363,7 @@ ListPage.actionMainMenu = function(){
     MediaPlayer.end();        
     ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, false);
     ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOffINFO, true);
+	ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOKINFO, true);
 //    ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnEXIT, false);
     ListPage.Info.Show(false, false);
     // clear all children and breadcrumbs
@@ -1329,7 +1377,7 @@ ListPage.actionMainMenu = function(){
     echo('---PAGE CHANGE---');
     ListPage.Show(false);
     MainPage.LastActComp.Activate(true,true);
-}
+};
 
 
 /**
@@ -1348,7 +1396,7 @@ ListPage.actionF3 = function(move){
             if ( move !== false ) CSListManager.Current().Focused(CSListManager.Current().Next(), true);
         }
     }
-}
+};
 
 
 /**
@@ -1362,96 +1410,88 @@ ListPage.actionINFO = function(){
     }else{
         ajax ( 'GET', CSListManager.Current().handleInner.data.url, htmlObjectInfoParser );
     }
-}
+};
 
 
 /**
  * Events handler entry point
  * @param {Event} event global event object
  */
-ListPage.EventHandler = function(event){
-    // get real key code or exit
-    if ( !eventPrepare(event) ) return;
-    echo('ListPage.EventHandler');
-    if ( ListPage.SearchBar.isActive ) {
-        echo('SearchBar.event.code='+event.code);
-        switch ( event.code ) {
-            case KEYS.RIGHT:
-                echo('To the right SearchBar)))');
-                if(ListPage.SearchBar.items.hint.value!==''){
-                    ListPage.SearchBar.items.text.value=MainPage.SearchBar.items.hint.value;
-                }
-                break;
-            case KEYS.DOWN:
-            case KEYS.EXIT:
-                echo('SearchBar down)))');
-                event.preventDefault();
-                break; 
-            default:
-                ListPage.SearchBar.EventHandler(event);
-        }
-    }   
-    else
-    if ( CSListManager.Current().isActive ) {
-        echo('CSListManager.Current().keyHandler='+CSListManager.Current().isActive);
-        switch ( event.code ) {
-            case KEYS.F2:
-                // показываем либо скрываем поиск
-                if(CSListManager.SearchBarVisibility == true && !ListPage.Info.isActive){
-                    ListPage.SearchBar.Activate(true);
-                }
-                break;
-            case KEYS.EXIT:
-            case KEYS.BACK:    
-                ListPage.actionBack();
-                break;
-            case KEYS.F3:
-            case KEYS.MENU:
-            case KEYS.INFO:
-                ListPage.BPanel.EventHandler(event);
-                break;
-            case KEYS.PLAY_PAUSE:
-                    ListPage.Preview.playPause();
-                break;
-            case KEYS.STOP:
-                    MediaPlayer.end();
-                break;
-            default:
-                    CSListManager.Current().EventHandler(event);
-        } 
-    }
-    else
-    if ( ListPage.Info.isActive ) {
-        echo('ListPage.Info.keyHandler=');
-        ListPage.infoMessage.focus();
-        switch ( event.code ) {
-            case KEYS.BACK:
-            case KEYS.INFO:
-            case KEYS.EXIT:
-                ListPage.actionBack();
-                break;
-            case KEYS.MENU:
-                ListPage.BPanel.EventHandler(event);
-                break;
-            case KEYS.DOWN:
-                ListPage.infoMessage.scrollByLines(3);
-                break;
-            case KEYS.UP:
-                ListPage.infoMessage.scrollByLines(-3);    
-                break;
-            case KEYS.PAGE_DOWN:
-                ListPage.infoMessage.scrollByPages(1);
-                break;
-            case KEYS.PAGE_UP:
-                ListPage.infoMessage.scrollByPages(-1);    
-                break;
-        } 
-    }
- 
-//    if ( event.code === KEYS.EXIT ){
-//        // показываем либо скрываем поиск
-//        ListPage.actionExit();
-//    }
+ListPage.EventHandler = function ( event ) {
+	// get real key code or exit
+	if ( !eventPrepare(event) ) return;
+	echo('ListPage.EventHandler');
+	if ( ListPage.SearchBar.isActive ) {
+		echo('SearchBar.event.code=' + event.code);
+		switch ( event.code ) {
+			case KEYS.RIGHT:
+				echo('To the right SearchBar)))');
+				if ( ListPage.SearchBar.items.hint.value !== '' ) {
+					ListPage.SearchBar.items.text.value = MainPage.SearchBar.items.hint.value;
+				}
+				break;
+			case KEYS.DOWN:
+			case KEYS.EXIT:
+				echo('SearchBar down)))');
+				event.preventDefault();
+				break;
+			default:
+				ListPage.SearchBar.EventHandler(event);
+		}
+	} else if ( CSListManager.Current().isActive ) {
+		echo('CSListManager.Current().keyHandler=' + CSListManager.Current().isActive);
+		switch ( event.code ) {
+			case KEYS.F2:
+				// показываем либо скрываем поиск
+				if ( CSListManager.SearchBarVisibility == true && !ListPage.Info.isActive ) {
+					ListPage.SearchBar.Activate(true);
+				}
+				break;
+			case KEYS.EXIT:
+			case KEYS.BACK:
+				ListPage.actionBack();
+				break;
+			case KEYS.F3:
+			case KEYS.MENU:
+			case KEYS.INFO:
+				ListPage.BPanel.EventHandler(event);
+				break;
+			case KEYS.PLAY_PAUSE:
+				ListPage.Preview.playPause();
+				break;
+			case KEYS.STOP:
+				MediaPlayer.end();
+				break;
+			default:
+				CSListManager.Current().EventHandler(event);
+		}
+	} else if ( ListPage.Info.isActive ) {
+		echo('ListPage.Info.keyHandler=');
+		ListPage.$infoMessage.focus();
+		switch ( event.code ) {
+			case KEYS.BACK:
+			case KEYS.INFO:
+			case KEYS.EXIT:
+				ListPage.actionBack();
+				break;
+			case KEYS.MENU:
+			case KEYS.OK:
+				ListPage.BPanel.EventHandler(event);
+				break;
+			case KEYS.DOWN:
+				ListPage.$infoMessage.scrollByLines(3);
+				break;
+			case KEYS.UP:
+				ListPage.$infoMessage.scrollByLines(-3);
+				break;
+			case KEYS.PAGE_DOWN:
+				ListPage.$infoMessage.scrollByPages(1);
+				break;
+			case KEYS.PAGE_UP:
+				ListPage.$infoMessage.scrollByPages(-1);
+				break;
+		}
+	}
 };
 
  
@@ -1459,9 +1499,8 @@ ListPage.EventHandler = function(event){
 /**
  * Парсер для составления списка фильмов/аудио/картинок.
  * @param {String} html содержание страницы меню сайта (а именно - видео/картинки/аудио)
- * @param {int} status статус полученного ответа
  */
-function htmlListParser(html, status){
+function htmlListParser(html){
 //    var date = new Date(); // подсчет скорости работы
 //    var start = date.getTime();
     echo('new htmlListParser');
@@ -1497,9 +1536,7 @@ function htmlListParser(html, status){
         add   = html[i].substring(html[i].indexOf('<small>')  +7, html[i].indexOf('</small>'));
         img = img.replace('?100','?400');
         // обьект или папка?
-        if(html[i].indexOf('Articles')<0 && html[i].indexOf('Статей')<0){
-            cat = false;
-        } else { cat = true; }
+		cat = !(html[i].indexOf('Articles')<0 && html[i].indexOf('Статей')<0);
         // некорректное имя
         if(title == '&nbsp;' || title == '' || title == ' ' || title === null || title === undefined){ title = 'unnamed'; }
         cats.push({
@@ -1513,20 +1550,14 @@ function htmlListParser(html, status){
     
     ListPage.addListItems(cats);
     echo('PARSER->ANSWER LENGTH='+cats.length);
-    
-//    date = new Date();
-//    echo('new htmlListParser speed='+(date.getTime()-start));
 }
 
 
  /**
  * Парсер для составления списка фильмов/аудио/картинок.
  * @param {String} html содержание страницы меню сайта (а именно - видео/картинки/аудио)
- * @param {int} status статус полученного ответа
  */
-function htmlSearchParser(html, status){
-//    var date = new Date();
-//    var start = date.getTime();
+function htmlSearchParser(html){
     echo('new htmlSearchParser');
     var cats = [], img, url, title, cat, add;
     try{
@@ -1564,9 +1595,7 @@ function htmlSearchParser(html, status){
         }
         img = img.replace('?100','?400');
         // обьект или папка?
-        if(html[i].indexOf('Articles')<0 && html[i].indexOf('Статей')<0){
-            cat = false;
-        } else { cat = true; }
+		cat = !(html[i].indexOf('Articles')<0 && html[i].indexOf('Статей')<0);
         // некорректное имя
         if(title == '&nbsp;' || title == '' || title == ' ' || title === null || title === undefined){ title = 'unnamed'; }
         
@@ -1581,8 +1610,6 @@ function htmlSearchParser(html, status){
     
     echo('PARSER->ANSWER LENGTH='+cats.length);
     ListPage.addListItems(cats);
-//    date = new Date();
-//    echo('new htmlSearchParser speed='+(date.getTime()-start));
 }
 
 /**
@@ -1599,7 +1626,7 @@ function onClickFunc(url, cat_id, cat_title, type){
         real_cat_id : cat_id,
         title       : cat_title,        
         type        : type
-    }
+    };
     ListPage.start(data);
     MainPage.LastActComp = MainPage.typeList.Current().cat;
 }
@@ -1661,7 +1688,7 @@ function htmlObjectParser(html){
     for(i = 0;i<cats.length;i++){
         var ext = cats[i].name.split('.');
         cats[i].ext = ext[ext.length - 1];
-        echo('['+i+']ext: '+cats[i].ext)
+        echo('['+i+']ext: '+cats[i].ext);
         cats[i].type = "none";
         if(model == 'MAG200'){
             switch(cats[i].ext.toLowerCase()){
@@ -1754,9 +1781,7 @@ function htmlObjectParser(html){
     }
     
     ListPage.addObjectItems(play);
-//        date = new Date();
-//        echo('NEW_htmlObjectParser speed='+(date.getTime()-start));
-}  
+}
 
 
 /**
@@ -1804,7 +1829,7 @@ function htmlActorsParser(html){
         url         : '',
         iid         : '',
         type        : TYPE_BACK
-    }
+    };
     somelistItem = element('div',{
         className: 'back'
     },'..');
@@ -1833,7 +1858,7 @@ function htmlActorsParser(html){
             addtime     : '',
             url         : 'http://www.ex.ua'+tmp[1],
             iid         : counter
-        }
+        };
             
         somelistItem = element('div',{
             className : css_class, 
@@ -1860,81 +1885,79 @@ function htmlActorsParser(html){
  * @param {String} html содержание страницы сайта
  * @param {int} status статус полученного ответа
  */
-function htmlWhatIsThisParser(html, status){
-    echo('htmlWhatIsThisParser');
-    if(MainPage.messageHint){MainPage.messageHint.Show(false);}
-    ListPage.Show( true, MainPage );
-    var source_html;
-    var current = CSListManager.Current().handleInner;
-    source_html = /include_0/im.exec(html);
-    if(source_html != null){
-        // THIS IS FOLDER
-        echo('current.data.type  = ORPHAN_FOLDER;');
-        current.data.type  = ORPHAN_FOLDER;
-        CSListManager.parentData.type = ORPHAN_FOLDER;
-        // навешиваем действие при наведении фокуса
-        CSListManager.Current().onFocus = function(current,previous){
-            // обычное поведение правого меню при просмотре списка папок
-            CSListManager.parent.listOnFocus(current,previous);
-            // навешиваем на onFocus слежение за текущей позицией чтобы знать когда дойдем до предпоследнего экрана и послать запрос на дополнение 
-            var curr_list_length = CSListManager.Current().handleInner.childNodes.length;
-            var cur_list_handleInner = CSListManager.Current().handleInner;
-            echo('current.data.iid ='+current.data.iid+' curr_list_length='+curr_list_length);
-            if(current.data.iid > curr_list_length-CSListManager.parent.ItemsPerPage/4 && cur_list_handleInner.page_length >= cur_list_handleInner.page_index){
-                var doc = CSListManager.Current().handleInner;
-                // подгрузка следующей порции при достижении предпоследнего листа
-                echo('iid_scroll=100%=>ajax='+doc.data.url+'?p='+doc.page_index+'&per='+ListPage.ItemsPerPage);
-                ajax ( 'GET', doc.data.url+'?p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {
-                    
-                } );
-            }
-        }
-        // навешиваем на csroll слежение за текущей позицией чтобы знать когда дойдем до текущего края и послать запрос на дополнение 
-        CSListManager.Current().handleInner.onscroll = function () { 
-            echo('on scroll ');
-            var doc = CSListManager.Current().handleInner, 
-            scrollPosition = doc.scrollTop,
-            pageSize = (doc.scrollHeight - doc.clientHeight),
-            percentageScrolled = Math.floor((scrollPosition / pageSize) * 100); 
-            // подгрузка следующей порции при достижении скроллингом скролла в 100%
-            if (percentageScrolled == 100 && doc.page_length >= doc.page_index){
-                echo('scroll=100%=>ajax='+doc.data.url+'?p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage);
-                ajax ( 'GET', doc.data.url+'?p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {
-                        
-                    } );
-            }
-        } 
-        htmlListParser(html, status);
-        return;
-    }
-    if(source_html == null){
-        // THIS IS OBJECT
-        source_html = /class=list/im.exec(html);
-        if(source_html != null){
-            echo('current.data.type  = MEDIA_OBJECT;');
-            current.data.type  = MEDIA_OBJECT;
-            CSListManager.parentData.type = MEDIA_OBJECT;
-            // навешиваем действие при наведении фокуса
-            CSListManager.Current().onFocus = function(current,previous){
-                // обычное поведение правого меню при просмотре списка обьекта
-                ListPage.onFocusAction(current,previous);
-            }
-            ListPage.messageHint = new CModalHint(ListPage, lang.loading);
-            htmlObjectParser(html, status);
-            return; 
-        }
-    }
-    // THIS IS... NOTHING
-    if(source_html == null){
-        new CModalAlert(ListPage, lang.loading_is_over, lang.no_files, lang.back_action, function(){
-            setTimeout(function(){
-                var data = {type:TYPE_BACK};
-                CSListManager.Open(data);
-            }, 5);
-        }); 
-        return; 
-    }
-}
+ function htmlWhatIsThisParser ( html, status ) {
+	 echo('htmlWhatIsThisParser');
+	 if ( MainPage.messageHint ) {MainPage.messageHint.Show(false);}
+	 ListPage.Show(true, MainPage);
+	 var source_html;
+	 var current = CSListManager.Current().handleInner;
+	 source_html = /include_0/im.exec(html);
+	 if ( source_html != null ) {
+		 // THIS IS FOLDER
+		 echo('current.data.type  = ORPHAN_FOLDER;');
+		 current.data.type = ORPHAN_FOLDER;
+		 CSListManager.parentData.type = ORPHAN_FOLDER;
+		 // навешиваем действие при наведении фокуса
+		 CSListManager.Current().onFocus = function ( current, previous ) {
+			 // обычное поведение правого меню при просмотре списка папок
+			 CSListManager.parent.onFocusAction(current, previous);
+			 // навешиваем на onFocus слежение за текущей позицией чтобы знать когда дойдем до предпоследнего экрана и послать запрос на дополнение
+			 var currLen = CSListManager.Current().handleInner.childNodes.length;
+			 var curHandleInner = CSListManager.Current().handleInner;
+			 var minStep = CSListManager.parent.ItemsPerPage / 4;
+			 echo('current.data.iid =' + current.data.iid + ' currLen=' + currLen);
+			 if ( current.data.iid > currLen - minStep && currLen > minStep && curHandleInner.page_length >= curHandleInner.page_index ) {
+				 var doc = CSListManager.Current().handleInner;
+				 // подгрузка следующей порции при достижении предпоследнего листа
+				 echo('iid_scroll=100%=>ajax=' + doc.data.url + '?p=' + doc.page_index + '&per=' + ListPage.ItemsPerPage);
+				 ajax('GET', doc.data.url + '?p=' + doc.page_index + '&per=' + CSListManager.parent.ItemsPerPage, htmlListParser, {
+
+				 });
+			 }
+		 };
+		 // навешиваем на csroll слежение за текущей позицией чтобы знать когда дойдем до текущего края и послать запрос на дополнение
+		 CSListManager.Current().handleInner.onscroll = function () {
+			 echo('on scroll ');
+			 var doc = CSListManager.Current().handleInner,
+				 scrollPosition = doc.scrollTop,
+				 pageSize = (doc.scrollHeight - doc.clientHeight),
+				 percentageScrolled = Math.floor((scrollPosition / pageSize) * 100);
+			 // подгрузка следующей порции при достижении скроллингом скролла в 100%
+			 if ( percentageScrolled == 100 && doc.page_length >= doc.page_index ) {
+				 echo('scroll=100%=>ajax=' + doc.data.url + '?p=' + doc.page_index + '&per=' + CSListManager.parent.ItemsPerPage);
+				 ajax('GET', doc.data.url + '?p=' + doc.page_index + '&per=' + CSListManager.parent.ItemsPerPage, htmlListParser, {});
+			 }
+		 };
+		 htmlListParser(html);
+		 return;
+	 }
+	 if ( source_html == null ) {
+		 // THIS IS OBJECT
+		 source_html = /class=list/im.exec(html);
+		 if ( source_html != null ) {
+			 echo('current.data.type  = MEDIA_OBJECT;');
+			 current.data.type = MEDIA_OBJECT;
+			 CSListManager.parentData.type = MEDIA_OBJECT;
+			 // навешиваем действие при наведении фокуса
+			 CSListManager.Current().onFocus = function ( current, previous ) {
+				 // обычное поведение правого меню при просмотре списка обьекта
+				 ListPage.onFocusAction(current, previous);
+			 };
+			 ListPage.messageHint = new CModalHint(ListPage, lang.loading);
+			 htmlObjectParser(html);
+			 return;
+		 }
+	 }
+	 // THIS IS... NOTHING
+	 if ( source_html == null ) {
+		 new CModalAlert(ListPage, lang.loading_is_over, lang.no_files, lang.back_action, function () {
+			 setTimeout(function () {
+				 var data = {type: TYPE_BACK};
+				 CSListManager.Open(data);
+			 }, 5);
+		 });
+	 }
+ }
 
 
 
@@ -1947,7 +1970,7 @@ ListPage.Preview.setProgress = function ( value ) {
         // apply
         ListPage.Preview.pgval.style.width = value + '%';
     }
-}
+};
 
 /**
  * Moves the cursor to the given element
@@ -1970,32 +1993,28 @@ ListPage.Preview.setPosition = function ( data ) {
 
 
 ListPage.Preview.playPause = function () {
-    echo('ListPage.Preview.playPause');
-    echo(MediaPlayer.list,'MediaPlayer.list 0');
-    var list = {};
-    // playing or not
-    if ( MediaPlayer.playNow || MediaPlayer.obj !== null ) {
-        MediaPlayer.playPause();
-    } else {
-        // check current selected item that it can be played
-        var file = CSListManager.Current().Current();
-        if ( CSListManager.playable.indexOf(file.data.type) !== -1 ) {
-            //this.Preview.Show(true);
-            this.player.className = 'player load';
-            // add files to playlist
-            if(file.marked){
-                list = MediaPlayer.addPreviewList();
-            } else {
-                list = MediaPlayer.addPreviewList(file.data);
-            }
-            // start playing
-            MediaPlayer.preparePlayer(list, ListPage, false, true, false);
-            echo(MediaPlayer.list,'MediaPlayer.list 1');
-            // only images or audio
-            if ( file.data.type === MEDIA_TYPE_IMAGE ) ListPage.Preview.player.className = 'player play';
-        }
-    }
-}
+	echo('ListPage.Preview.playPause');
+	echo(MediaPlayer.list, 'MediaPlayer.list 0');
+	var list = [];
+	// playing or not
+	if ( MediaPlayer.playNow || MediaPlayer.obj !== null ) {
+		MediaPlayer.playPause();
+	} else {
+		// check current selected item that it can be played
+		var file = CSListManager.Current().Current();
+		if ( CSListManager.playable.indexOf(file.data.type) !== -1 ) {
+			this.player.className = 'player load';
+			// add files to playlist
+			list = MediaPlayer.addPreviewList();
+			// start playing
+			echo(list, 'MediaPlayer.preparePlayer(list,');
+			MediaPlayer.preparePlayer(list, ListPage, false, true, false);
+			echo(MediaPlayer.list, 'MediaPlayer.list 1');
+			// only images or audio
+			if ( file.data.type === MEDIA_TYPE_IMAGE ) {ListPage.Preview.player.className = 'player play'};
+		}
+	}
+};
 
 
 /**
@@ -2003,34 +2022,41 @@ ListPage.Preview.playPause = function () {
 * @return {{x:Number,y:Number,a:Number,b:Number}}
 */
 ListPage.Preview.getRect = function () {
-		switch ( environment.tvsystem ) {
-                        case 'NTSC':
-                                return {x:457, y:97, a:218, b:140};
-                        case 'PAL':
-                        case '576-50':
-                        case '576p-50':    
-                                return {x:457, y:108, a:219, b:140};
-			case '720p-50':
-			case '720p-60':
-				switch ( screen.width ) {
-					case 720         : return {x:837, y:129, a:389, b:177};
-					case 1280        : return {x:830, y:129, a:394, b:220};
-				}
-				break;
-			case '1080i-50':
-			case '1080i-60':
-			case '1080p-50':
-			case '1080p-60':
-				switch ( screen.width ) {
-					case 720         : return {x:1253,y:205, a:584, b:260};
-					case 1280        : return {x:1245,y:192, a:588, b:330};
-					case 1920        : return {x:1247,y:194, a:591, b:330};
-				}
-				break;
-		}
-        // just in case
-        return { x:0, y:0, a:0, b:0 };
+	var videoMode = gSTB.RDir('vmode');
+	switch ( videoMode ) {
+		case '480i':
+		case '480p':
+			return {x : 457, y : 97, a : 218, b : 140};
+		case '576i':
+		case '576p':
+			return {x : 457, y : 108, a : 219, b : 140};
+		case '720p':
+		case '720p60':
+			switch ( screen.width ) {
+				case 720         :
+					return {x : 837, y : 129, a : 389, b : 177};
+				case 1280        :
+					return {x : 830, y : 129, a : 394, b : 220};
+			}
+			break;
+		case '1080i':
+		case '1080i60':
+		case '1080p':
+		case '1080p60':
+			switch ( screen.width ) {
+				case 720         :
+					return {x : 1253, y : 205, a : 584, b : 260};
+				case 1280        :
+					return {x : 1245, y : 192, a : 588, b : 330};
+				case 1920        :
+					return {x : 1247, y : 194, a : 591, b : 330};
+			}
+			break;
+	}
+	// just in case
+	return { x : 0, y : 0, a : 0, b : 0 };
 };
+
 
 /**
  * Convert number of bytes into human readable format
@@ -2085,7 +2111,7 @@ ListPage.Preview.infoFolder = function(data){
     CSListManager.parent.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, false);
     CSListManager.parent.BPanel.Hidden(CSListManager.parent.BPanel.btnOffINFO, true);
     var self = this,
-    size = rigth_menu_text_length,
+    size = rightMenuTextLength,
     name = data.title.substr(0, size - 1) + (data.title.length > size ? '...' : '');
         
     elchild(elclear(this.body), element('div', {}, [
@@ -2093,7 +2119,7 @@ ListPage.Preview.infoFolder = function(data){
             element('div', {className: 'text'}, [lang.description, element('span', {className: 'txt'}, name.split('').join("\u200B"))]),
             element('div', {className: 'text'}, [lang.add_time, element('span', {className: 'txt'}, data.addtime)])
     ]));
-}
+};
 
 
 /**
@@ -2112,11 +2138,11 @@ ListPage.Preview.infoFile = function(data){
     }
        echo('name 0= '+data.name);
             var self = this,
-            size = rigth_menu_text_length,
+            size = rightMenuTextLength,
             name = data.name.substr(0, size - 1) + (data.name.length > size ? '...' : ''),
             size_in_bytes;
             if(data.size_in_bytes){
-                size_in_bytes = data.size_in_bytes == '' ? '' : ListPage.Preview.bytesToSize((data.size_in_bytes.split(',').join(''))*1, 1);
+                size_in_bytes = data.size_in_bytes == '' ? '' : ListPage.Preview.bytesToSize(Number(data.size_in_bytes.split(',').join('')), 1);
             } else {
                 size_in_bytes = 0;
             }
@@ -2136,11 +2162,11 @@ ListPage.Preview.infoFile = function(data){
         echo('name 2= '+name.split('').join("\u200B"));
 	// show images at once
 	if ( data.type === MEDIA_TYPE_IMAGE ){ListPage.Preview.playPause();}
-}
+};
 
 
 
-ListPage.Preview.infoBack = function(data){
+ListPage.Preview.infoBack = function(){
     echo('infoBack');
     CSListManager.parent.BPanel.Hidden(CSListManager.parent.BPanel.btnF3, true);
     CSListManager.parent.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, true);
@@ -2149,33 +2175,32 @@ ListPage.Preview.infoBack = function(data){
 		this.infoIcon,
 		element('div', {className: 'text'}, lang.madia_menu_info_back_act)
 	]));
-}
+};
 
 
-ListPage.Info.start = function(html){
-    echo('ListPage.Info.start');
-    ListPage.SearchBar.Show(false,false);
-    // проверяем, есь ли F3, и если есть - запоминаем это, чтобы показать её при выходе
-    if(!CSListManager.parent.BPanel.btnF3.data.hidden){
-     ListPage.Info.f3_visibility_flag = true;
-     ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnF3, true);
-    }
-//    ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnEXIT, true);
-    ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, true);
-    ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOffINFO, false);
-    var mess = element('div', { className:'messText', innerHTML:html });
-    elchild( elclear(ListPage.infoMessage), mess );
-    // пока идет работа с DOM отложим поиск
-    setTimeout(function(){
-        var button = ListPage.infoMessage.querySelector('.r_button');
-        if(button){
-            button.innerHTML = ''; 
-        }
-        //var img = ListPage.infoMessage.querySelector('img');
-    },600)
-    ListPage.Info.Show(true, true);
-    ListPage.Info.Activate();
-}
+ListPage.Info.start = function ( html ) {
+	echo('ListPage.Info.start');
+	var mess;
+//	this.htmlData = html; // save ajax req res to use it for shortcut btn
+	ListPage.SearchBar.Show(false, false);
+	// проверяем, есь ли F3, и если есть - запоминаем это, чтобы показать её при выходе
+	if ( !CSListManager.parent.BPanel.btnF3.data.hidden ) {
+		ListPage.Info.f3_visibility_flag = true;
+		ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnF3, true);
+	}
+	ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOnINFO, true);
+	ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOffINFO, false);
+	ListPage.BPanel.Hidden(CSListManager.parent.BPanel.btnOKINFO, false);
+	mess = element('div', { className: 'messText', innerHTML: html });
+	elchild(elclear(ListPage.$infoMessage), mess);
+	// пока идет работа с DOM отложим поиск
+	setTimeout(function () {
+		var button = ListPage.$infoMessage.querySelector('.r_button');
+		if ( button ) { button.innerHTML = ''; }
+	}, 600);
+	ListPage.Info.Show(true, true);
+	ListPage.Info.Activate();
+};
 
 
 /**
@@ -2199,7 +2224,7 @@ function htmlObjectInfoParser(html){
         });
         return;
     }
-    html = html[1].split('td');
+    html = html[2].split('td');
     if(html[1] == null){
         html[1] = html[0];
     }

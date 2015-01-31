@@ -168,7 +168,7 @@ echo "</table></center>";
 
 if (@$_GET['edit']){
 
-    $arr = Mysql::getInstance()->from('moderators')->where(array('id' => intval(@$_GET['id'])))->get()->all();
+    $arr = Mysql::getInstance()->from('moderators')->where(array('id' => intval(@$_GET['id'])))->get()->first();
 
     if (!empty($arr)){
         $mac              = $arr['mac'];
@@ -194,9 +194,9 @@ function save(){
     else{
         action += '&save=1'
     }
-    
-    form_.action = action
-    form_.method = 'POST'
+
+    form_.setAttribute('action', action);
+    form_.setAttribute('method', 'POST');
     form_.submit()
 }
 </script>
@@ -241,7 +241,7 @@ function save(){
            <td>
            </td>
            <td>
-            <input type="button" value="<?= _('Save')?>" onclick="save()">&nbsp;<input type="button" value="<?= _('New')?>" onclick="document.location='add_moderator_mac.php'">
+            <input type="button" value="<?= htmlspecialchars(_('Save'), ENT_QUOTES)?>" onclick="save()">&nbsp;<input type="button" value="<?= htmlspecialchars(_('New'), ENT_QUOTES)?>" onclick="document.location='add_moderator_mac.php'">
            </td>
         </tr>
     </table>

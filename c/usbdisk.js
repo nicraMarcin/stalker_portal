@@ -13,7 +13,7 @@ function usbdisk(){
     this.files = [];
 
     this.audio_ext = '.mp3 .ac3 .wav .flac .ogg';
-    this.video_ext = '.mpg .mkv .avi .m2ts .mts .ts .mp4 .wmv .mov .vob .iso .srt .sub .ass';
+    this.video_ext = '.mpg .mkv .avi .m2ts .mts .ts .mp4 .m4v .wmv .mov .vob .iso .srt .sub .ass .wtv';
     this.image_ext = '.jpg .jpeg';
 
     var files_ext  = this.audio_ext + ' ' + this.video_ext;
@@ -22,7 +22,7 @@ function usbdisk(){
         this.image_ext += ' ' + '.bmp .tiff .tif .png';
     }
 
-    if (stb.type == 'MAG250' || stb.type.indexOf('AuraHD') != -1){
+    if (stb.type != 'MAG200'){
         files_ext += ' ' + this.image_ext;
     }
 

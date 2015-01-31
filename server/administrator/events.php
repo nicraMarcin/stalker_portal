@@ -62,11 +62,34 @@ if (!empty($_POST['user_list_type']) && !empty($_POST['event'])){
         if (@$_POST['pattern'] == 'mag100'){
             $user_list = Middleware::getUidsByPattern(array('hd' => 0));
         }else if (@$_POST['pattern'] == 'mag200'){
-            $user_list = Middleware::getUidsByPattern(array('hd' => 1));
-        }else{
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG200'));
+        }else if (@$_POST['pattern'] == 'mag245'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG245'));
+        }else if (@$_POST['pattern'] == 'mag250'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG250'));
+        }else if (@$_POST['pattern'] == 'mag255'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG255'));
+        }else if (@$_POST['pattern'] == 'mag260'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG260'));
+        }else if (@$_POST['pattern'] == 'mag270'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG270'));
+        }else if (@$_POST['pattern'] == 'mag275'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'MAG275'));
+        }else if (@$_POST['pattern'] == 'wr320'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'WR320'));
+        }else if (@$_POST['pattern'] == 'aurahd0'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'AuraHD0'));
+        }else if (@$_POST['pattern'] == 'aurahd1'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'AuraHD1'));
+        }else if (@$_POST['pattern'] == 'aurahd9'){
+            $user_list = Middleware::getUidsByPattern(array('stb_type' => 'AuraHD9'));
+        }
+        else{
             $user_list = array();
         }
-        
+
+        $error = sprintf(_('%s events %s sended, %s errors'), count($user_list), $_POST['event'], $error_counter)."<br>\n".$error;
+
         $event->setUserListById($user_list);
         
     }elseif (@$_POST['user_list_type'] == 'by_group'){
@@ -77,13 +100,20 @@ if (!empty($_POST['user_list_type']) && !empty($_POST['event'])){
         }else{
             $user_list = array();
         }
-        
+
+        $error = sprintf(_('%s events %s sended, %s errors'), count($user_list), $_POST['event'], $error_counter)."<br>\n".$error;
+
         $event->setUserListById($user_list);
         
     }elseif (@$_POST['user_list_type'] == 'by_user_list'){
         if (@$_FILES['user_list']){
             if (is_uploaded_file($_FILES['user_list']['tmp_name'])) {
                 $f_cont = file ($_FILES['user_list']['tmp_name']);
+
+                if (is_array($f_cont) && isset($f_cont[0]) && substr($f_cont[0], 0, 3) == "\xef\xbb\xbf"){
+                    $f_cont[0] = substr($f_cont[0], 3);
+                }
+
                 foreach ($f_cont as $mac){
             
                     $uid = Middleware::getUidByMac($mac);
@@ -159,6 +189,12 @@ $events = Event::getAllNotEndedEvents($uid);
 $debug = '<!--'.ob_get_contents().'-->';
 ob_clean();
 echo $debug;
+
+if (!empty($_SERVER['HTTP_REFERER']) && strpos($_SERVER['HTTP_REFERER'], 'events.php') === false){
+    $_SESSION['back_url'] = $_SERVER['HTTP_REFERER'];
+}elseif (empty($_SERVER['HTTP_REFERER'])){
+    $_SESSION['back_url'] = 'index.php';
+}
 ?>
 <html>
 <head>
@@ -206,7 +242,7 @@ a:hover{
 </tr>
 <tr>
     <td width="100%" align="left" valign="bottom">
-        <a href="index.php"><< <?= _('Back')?></a> | <a href="events.php"><?= _('New event')?></a>
+        <a href="<?= empty($_SESSION['back_url'])? 'index.php' : $_SESSION['back_url']?>"><< <?= _('Back')?></a> | <a href="events.php"><?= _('New event')?></a>
     </td>
 </tr>
 <tr>
@@ -327,7 +363,7 @@ function fill_msg(){
         MAC:
     </td>
     <td>
-        <input type="text" name="mac" id="mac" value="<? echo @$mac?>">&nbsp;<input type="button" value="<?= _('Load active events')?>" onclick="load_events_by_mac()">
+        <input type="text" name="mac" id="mac" value="<? echo @$mac?>">&nbsp;<input type="button" value="<?= htmlspecialchars(_('Load active events'), ENT_QUOTES)?>" onclick="load_events_by_mac()">
     </td>
 </tr>
 <tr id="user_list_row" style="display:none">
@@ -346,6 +382,16 @@ function fill_msg(){
         <select name="pattern">
             <option value="mag100">MAG100</option>
             <option value="mag200">MAG200</option>
+            <option value="mag245">MAG245</option>
+            <option value="mag250">MAG250</option>
+            <option value="mag255">MAG255</option>
+            <option value="mag260">MAG260</option>
+            <option value="mag270">MAG270</option>
+            <option value="mag275">MAG275</option>
+            <option value="wr320">WR320</option>
+            <option value="aurahd0">AuraHD0</option>
+            <option value="aurahd1">AuraHD1</option>
+            <option value="aurahd9">AuraHD9</option>
         </select>
     </td>
 </tr>
@@ -411,7 +457,7 @@ function fill_msg(){
 <tr>
     <td align="left"></td>
     <td>
-        <input type="submit" id="submit_button" disabled="disabled" value="<?= _('Save')?>">
+        <input type="submit" id="submit_button" disabled="disabled" value="<?= htmlspecialchars(_('Save'), ENT_QUOTES)?>">
     </td>
 </tr>
 </form>

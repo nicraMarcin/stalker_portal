@@ -201,6 +201,12 @@ if (count(@$_POST) > 0){
                 $high_quality = 0;
             }
 
+            if (@$_POST['low_quality'] == 'on'){
+                $low_quality = 1;
+            }else{
+                $low_quality = 0;
+            }
+
             if (@$_POST['for_sd_stb'] == 'on'){
                 $for_sd_stb = 1;
             }else{
@@ -298,7 +304,9 @@ if (count(@$_POST) > 0){
                             'rating_mpaa'    => $_POST['rating_mpaa'],
                             'path'           => $trans_name,
                             'high_quality'   => $high_quality,
+                            'low_quality'    => $low_quality,
                             'comments'       => $_POST['comments'],
+                            'country'        => $_POST['country'],
                             'added'          => 'NOW()'
                         )
                     )->insert_id();
@@ -367,7 +375,9 @@ if (count(@$_POST) > 0){
                             'age'            => $_POST['age'],
                             'rating_mpaa'    => $_POST['rating_mpaa'],
                             'high_quality'   => $high_quality,
-                            'comments'       => $_POST['comments']
+                            'low_quality'    => $low_quality,
+                            'comments'       => $_POST['comments'],
+                            'country'        => $_POST['country']
                         ),
                         array(
                             'id' => (int) $_GET['id']
@@ -498,22 +508,30 @@ a:hover{
 
         $("#video_on_date").datepicker({
             dateFormat  : 'dd-mm-yy',
-            dayNamesMin : ['<?= _('Sun')?>', '<?= _('Mon')?>', '<?= _('Tue')?>', '<?= _('Wed')?>', '<?= _('Thu')?>', '<?= _('Fri')?>', '<?= _('Sat')?>'],
+            dayNamesMin : [
+                '<?= htmlspecialchars(_('Sun'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('Mon'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('Tue'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('Wed'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('Thu'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('Fri'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('Sat'), ENT_QUOTES)?>'
+            ],
             firstDay    : 1,
             minDate     : new Date(),
             monthNames  : [
-                '<?= _('January')?>',
-                '<?= _('February')?>',
-                '<?= _('March')?>',
-                '<?= _('April')?>',
-                '<?= _('May')?>',
-                '<?= _('June')?>',
-                '<?= _('July')?>',
-                '<?= _('August')?>',
-                '<?= _('September')?>',
-                '<?= _('October')?>',
-                '<?= _('November')?>',
-                '<?= _('December')?>'
+                '<?= htmlspecialchars(_('January'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('February'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('March'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('April'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('May'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('June'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('July'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('August'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('September'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('October'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('November'), ENT_QUOTES)?>',
+                '<?= htmlspecialchars(_('December'), ENT_QUOTES)?>'
             ]
         });
 
@@ -538,10 +556,10 @@ a:hover{
             width: 350,
             modal: true,
             buttons: {
-                "<?= _('Turn on')?>" : function(){
+                "<?= htmlspecialchars(_('Turn on'), ENT_QUOTES)?>" : function(){
                     window.location = "add_video.php?date_on="+$('#video_on_date').val()+"&accessed=1&id="+$("#video_on_id").val()+"&letter="+getURLParameter('letter')+"&search="+getURLParameter('search')+"&page="+getURLParameter('page');
                 },
-                "<?= _('Cancel')?>" : function(){
+                "<?= htmlspecialchars(_('Cancel'), ENT_QUOTES)?>" : function(){
                     $(this).dialog("close");
                 }
             },
@@ -656,7 +674,7 @@ if ($search){
     }else{
         $where .= 'where ';
     }
-    $where .= 'name like "%'.$search.'%" or o_name like "%'.$search.'%" or path like "%'.$search.'%"';
+    $where .= 'name like "%'.$search.'%" or o_name like "%'.$search.'%" or path like "%'.$search.'%" or video.id like "%'.$search.'%"';
 }
 if (isset($_GET['letter'])) {
 	//$where = 'where name like "'.urldecode($letter).'%"';
@@ -687,6 +705,8 @@ if (@$_GET['status']){
         $where .= 'accessed='.$op_accessed;
     }else if (@$_GET['status'] == 'red'){
         $where .= 'status=0';
+    }else if (@$_GET['status'] == 'sd_double_hd'){
+        $where .= 'disable_for_hd_devices=1';
     }
 
     if (@$_GET['status'] == 'closed_n_off'){
@@ -733,7 +753,7 @@ $all_video = Mysql::getInstance()->query($query);
 <tr>
 <td>
 <form action="" method="GET">
-<input type="text" name="search" value="<? echo $search ?>"><input type="submit" value="<?= _('Search')?>">&nbsp;<font color="Gray"><?= _('search by file name of movie name')?></font>
+<input type="text" name="search" value="<? echo $search ?>"><input type="submit" value="<?= htmlspecialchars(_('Search'), ENT_QUOTES)?>">&nbsp;<font color="Gray"><?= _('search by file name of movie name')?></font>
 </form>
 <td>
 </tr>
@@ -802,6 +822,7 @@ $all_video = Mysql::getInstance()->query($query);
     <option value="off" <?if (@$_GET['status'] == 'off') echo 'selected'?>>off
     <option value="closed_n_off" <?if (@$_GET['status'] == 'closed_n_off') echo 'selected'?>>closed and off
     <option value="red" <?if (@$_GET['status'] == 'red') echo 'selected'?>>red
+    <option value="sd_double_hd" <?if (@$_GET['status'] == 'sd_double_hd') echo 'selected'?>>sd_double_hd
 </select>&nbsp;&nbsp;&nbsp;
 <?= _('Votes')?>:
 <select id="sort_vote" onchange="change_list()">
@@ -928,9 +949,11 @@ if (@$_GET['edit']){
         $actors   = $arr['actors'];
         $time     = $arr['time'];
         $year     = $arr['year'];
+        $country  = $arr['country'];
         $path     = $arr['path'];
         $hd       = $arr['hd'];
         $high_quality = $arr['high_quality'];
+        $low_quality  = $arr['low_quality'];
         $rtsp_url = $arr['rtsp_url'];
         $protocol = $arr['protocol'];
         $rating_mpaa = $arr['rating_mpaa'];
@@ -959,6 +982,11 @@ if (@$_GET['edit']){
             $checked_high_quality = 'checked';
         }else{
             $checked_high_quality = '';
+        }
+        if ($low_quality){
+            $checked_low_quality = 'checked';
+        }else{
+            $checked_low_quality = '';
         }
         if ($for_sd_stb){
             $checked_for_sd_stb = 'checked';
@@ -1225,11 +1253,11 @@ function change_list(){
 function md5sum(obj, status, media_name, storage_name){
     if (can_md5dum){
         if (status == 'done'){
-            obj.innerHTML = '<?= _('please wait')?>...';
+            obj.innerHTML = '<?= htmlspecialchars(_('please wait'), ENT_QUOTES)?>...';
             doLoad('startmd5sum',{'media_name':media_name, 'storage_name':storage_name})
         }
     }else{
-        alert('<?= _('Error: insufficient permissions for this action')?>')
+        alert('<?= htmlspecialchars(_('Error: insufficient permissions for this action'), ENT_QUOTES)?>')
     }
 }
 
@@ -1262,9 +1290,9 @@ function display_info(arr, id){
 
         var md5sum = '';
         var table  = '<tr>';
-        table += '<td class="list2" width="70"><?= _('Server')?></td>';
-        table += '<td class="list2" width="200"><?= _('Folder')?></td>';
-        table += '<td class="list2" width="60"><?= _('Series')?></td>';
+        table += '<td class="list2" width="70"><?= htmlspecialchars(_('Server'), ENT_QUOTES)?></td>';
+        table += '<td class="list2" width="200"><?= htmlspecialchars(_('Folder'), ENT_QUOTES)?></td>';
+        table += '<td class="list2" width="60"><?= htmlspecialchars(_('Series'), ENT_QUOTES)?></td>';
         table += '<td class="list2">&nbsp;</td>';
         table += '</tr>';
 
@@ -1274,12 +1302,12 @@ function display_info(arr, id){
 
             if (arr[i]['files'][0]['status'] == 'done'){
                 if (arr[i]['files'][0]['md5'] != ''){
-                    md5btn_txt = '<?= _('check')?>'
+                    md5btn_txt = '<?= htmlspecialchars(_('check'), ENT_QUOTES)?>'
                 }else{
-                    md5btn_txt = '<?= _('count md5 sum')?>'
+                    md5btn_txt = '<?= htmlspecialchars(_('count md5 sum'), ENT_QUOTES)?>'
                 }
             }else{
-                md5btn_txt = '<?= _('counting')?>...'
+                md5btn_txt = '<?= htmlspecialchars(_('counting'), ENT_QUOTES)?>...'
             }
 
             if (arr[i]['for_moderator'] == 1){
@@ -1303,7 +1331,7 @@ function display_info(arr, id){
                 if(arr[i]['files'][j]['status'] == 'done'){
                     md5sum = arr[i]['files'][j]['md5'];
                 }else{
-                    md5sum = '<?= _('counting')?>...'
+                    md5sum = '<?= htmlspecialchars(_('counting'), ENT_QUOTES)?>...'
                 }
 
                 table +='<td nowrap width="100%" align="right"><sub><b>'+arr[i]['files'][j]['name']+'</b> '+md5sum+'</sub></td>'
@@ -1348,10 +1376,10 @@ function doLoad(get, data){
 
                 if (get == 'startmd5sum'){
                     if (req.responseJS.error){
-                        document.getElementById('md5sum_link_'+data.media_name+'_'+data.storage_name).innerHTML = '<?= _('error')?>'
+                        document.getElementById('md5sum_link_'+data.media_name+'_'+data.storage_name).innerHTML = '<?= htmlspecialchars(_('error'), ENT_QUOTES)?>'
                         alert(req.responseJS.error)
                     }else{
-                        document.getElementById('md5sum_link_'+data.media_name+'_'+data.storage_name).innerHTML = '<?= _('counting')?>'
+                        document.getElementById('md5sum_link_'+data.media_name+'_'+data.storage_name).innerHTML = '<?= htmlspecialchars(_('counting'), ENT_QUOTES)?>'
                     }
                 }
 
@@ -1381,7 +1409,7 @@ function doLoad(get, data){
 
             }else{
                 if (get == 'vclub_info'){
-                    alert('<?= _('Error: The file or directory may contain invalid characters')?>')
+                    alert('<?= htmlspecialchars(_('Error: The file or directory may contain invalid characters'), ENT_QUOTES)?>')
                 }
             }
         }
@@ -1433,10 +1461,10 @@ function resp_check_name(resp){
     var name_itm = document.getElementById('name_chk')
     if(resp == 1){
         name_itm.style.color = 'red'
-        name_itm.innerHTML = '<?= _('Not available')?>'
+        name_itm.innerHTML = '<?= htmlspecialchars(_('Not available'), ENT_QUOTES)?>'
     }else{
         name_itm.style.color = 'green'
-        name_itm.innerHTML = '<?= _('Available')?>'
+        name_itm.innerHTML = '<?= htmlspecialchars(_('Available'), ENT_QUOTES)?>'
     }
 }
 
@@ -1449,15 +1477,14 @@ function hint(){
 }
 
 function save(){
-    form_ = document.getElementById('form_')
+    var form_ = document.getElementById('form_');
 
-    name = document.getElementById('name').value
+    var name = document.getElementById('name').value;
 
-    id = document.getElementById('id').value
-    description = document.getElementById('description').value
+    var id = document.getElementById('id').value;
+    var description = document.getElementById('description').value;
 
-    action = 'add_video.php?name='+name+'&id='+id+'&letter=<? echo @$_GET['letter'] ?>&search=<? echo @$_GET['search']?>&page=<? echo @$_GET['page'] ?>'
-
+    var action = 'add_video.php?name='+name+'&id='+id+'&letter=<? echo @$_GET['letter'] ?>&search=<? echo @$_GET['search']?>&page=<? echo @$_GET['page'] ?>';
 
     if(document.getElementById('action').value == 'edit'){
         action += '&update=1'
@@ -1466,9 +1493,9 @@ function save(){
         action += '&save=1'
     }
 
-    form_.action = action
-    form_.method = 'POST'
-    form_.submit()
+    form_.setAttribute('action', action);
+    form_.setAttribute('method', 'POST');
+    form_.submit();
 }
 
 function genre_proc(num){
@@ -1903,6 +1930,17 @@ $(function(){
         </tr>
         <?}?>
 
+        <? if (Config::getSafe('enable_video_low_quality_option', false)){ ?>
+            <tr>
+                <td align="right" valign="top">
+                    <?= _('Low quality')?>:
+                </td>
+                <td>
+                    <input name="low_quality" id="low_quality" type="checkbox" <? echo isset($checked_low_quality) ? $checked_low_quality : 'checked' ?> >
+                </td>
+            </tr>
+        <?}?>
+
         <tr id="genre_1" style="background-color:#e0e0e0">
            <td align="right" valign="top">
             <?= _('old genre')?> 1:
@@ -1996,6 +2034,14 @@ $(function(){
         </tr>
         <tr>
            <td align="right" valign="top">
+           <?= _('Country')?>:
+           </td>
+           <td>
+            <input name="country" class="country" type="text" size="50" value="<? echo @$country ?>">
+           </td>
+        </tr>
+        <tr>
+           <td align="right" valign="top">
             <?= _('Duration')?>:
            </td>
            <td>
@@ -2061,7 +2107,7 @@ $(function(){
            <td>
            </td>
            <td>
-           <input type="button" value="<?= _('Save')?>" onclick="save()">&nbsp;<input type="button" value="<?= _('New')?>" onclick="document.location='add_video.php'">
+           <input type="button" value="<?= htmlspecialchars(_('Save'), ENT_QUOTES)?>" onclick="save()">&nbsp;<input type="button" value="<?= htmlspecialchars(_('New'), ENT_QUOTES)?>" onclick="document.location='add_video.php'">
            </td>
         </tr>
         <tr>

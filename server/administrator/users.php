@@ -31,6 +31,10 @@ if (@$_GET['del'] && !Config::getSafe('deny_delete_user', false)){
     $id = intval(@$_GET['id']);
 
     Mysql::getInstance()->delete('users', array('id' => $id));
+
+    Mysql::getInstance()->delete('fav_itv', array('uid' => $id));
+    Mysql::getInstance()->delete('fav_vclub', array('uid' => $id));
+    Mysql::getInstance()->delete('media_favorites', array('uid' => $id));
     
     header("Location: users.php?search=".$_GET['search']."&page=".$_GET['page']);
     exit();
@@ -399,6 +403,10 @@ switch (@$_GET['sort_by']){
             add_where($where, " keep_alive>'$now_time' and now_playing_type=2 order by id");
             break;
         }
+    case 'audioclub':{
+        add_where($where, " keep_alive>'$now_time' and now_playing_type=4 order by id");
+            break;
+        }
     case 'ad':{
             add_where($where, " keep_alive>'$now_time' and now_playing_type=9 order by id");
             break;
@@ -499,7 +507,7 @@ function sort_page(){
     <tr>
         <td>
             <form action="" method="GET">
-            <input type="text" name="search" value="<? echo $search ?>"><input type="submit" value="<?= _('Search')?>">&nbsp;<font color="Gray"><?= _('search by MAC, IP, login or account number')?></font>
+            <input type="text" name="search" value="<? echo $search ?>"><input type="submit" value="<?= htmlspecialchars(_('Search'), ENT_QUOTES)?>">&nbsp;<font color="Gray"><?= _('search by MAC, IP, login or account number')?></font>
             </form>
         <td>
     </tr>
@@ -513,6 +521,7 @@ function sort_page(){
                 <option value="off" <? if (@$_GET['sort_by'] == 'off') echo 'selected' ?>>off
                 <option value="iptv" <? if (@$_GET['sort_by'] == 'iptv') echo 'selected' ?>>iptv
                 <option value="video" <? if (@$_GET['sort_by'] == 'video') echo 'selected' ?>>video
+                <option value="audioclub" <? if (@$_GET['sort_by'] == 'audioclub') echo 'selected' ?>>audioclub
                 <option value="radio" <? if (@$_GET['sort_by'] == 'radio') echo 'selected' ?>>radio
                 <option value="karaoke" <? if (@$_GET['sort_by'] == 'karaoke') echo 'selected' ?>>karaoke
                 <option value="records" <? if (@$_GET['sort_by'] == 'records') echo 'selected' ?>>records
@@ -551,7 +560,7 @@ function sort_page(){
             <select name="ii" id="ii">
                 <? echo construct_II()?>
             </select>
-            <input type="submit" value="<?= _('Search')?>"> <font color="Gray"><?= _('search inactive users')?></font>
+            <input type="submit" value="<?= htmlspecialchars(_('Search'), ENT_QUOTES)?>"> <font color="Gray"><?= _('search inactive users')?></font>
             </form>
         <td>
     </tr>
@@ -565,6 +574,7 @@ echo "<td class='list'><b>#</b></td>\n";
 echo "<td class='list'><b>MAC</b></td>\n";
 echo "<td class='list'><b>IP</b></td>\n";
 echo "<td class='list'><b>Login</b></td>\n";
+echo "<td class='list'><b>Account</b></td>\n";
 echo "<td class='list'><b>Name</b></td>\n";
 echo "<td class='list'><b>Tariff</b></td>\n";
 echo "<td class='list'><b>"._('Type')."</b></td>\n";
@@ -579,11 +589,13 @@ $i=0+$MAX_PAGE_ITEMS*$page;
 while($arr = $users->next()){
     $i++;
 
-    $now_playing_content = $arr['now_playing_content'];
+    $now_playing_content = htmlspecialchars($arr['now_playing_content']);
     
     if ($arr['now_playing_type'] == 2 && $arr['storage_name']){
         $now_playing_content = '['.$arr['storage_name'].'] '.$now_playing_content;
     }
+
+    $status = check_keep_alive($arr['keep_alive']);
     
     echo "<tr>";
     //echo "<td class='list'>".$arr['id']."</td>\n";
@@ -592,12 +604,13 @@ while($arr = $users->next()){
     echo "<td class='list'><a href='profile.php?id=".$arr['id']."'>".$arr['mac']."</a></td>\n";
     echo "<td class='list'><a href='events.php?mac=".$arr['mac']."'>".$arr['ip']."</a></td>\n";
     echo "<td class='list'><a href='profile.php?id=".$arr['id']."'>".$arr['login']."</a></td>\n";
+    echo "<td class='list'>".$arr['ls']."</td>\n";
     echo "<td class='list'>".$arr['fname']."</td>\n";
     echo "<td class='list'>".$arr['tariff_plan_name']."</td>\n";
-    echo "<td class='list'>".get_cur_media($arr['now_playing_type'])."</td>\n";
-    echo "<td class='list'>".$now_playing_content."</td>\n";
+    echo "<td class='list'>".(!$status && Config::getSafe('hide_media_info_for_offline_stb', false) ? '--' : get_cur_media($arr['now_playing_type']))."</td>\n";
+    echo "<td class='list'>".(!$status && Config::getSafe('hide_media_info_for_offline_stb', false) ? '' : $now_playing_content)."</td>\n";
     echo "<td class='list'>".get_last_time($arr['now_playing_start'])."</td>\n";
-    echo "<td class='list'><b>".check_keep_alive_txt($arr['keep_alive'])."</b></td>\n";
+    echo "<td class='list'><b>".($status ? '<font color="Green">online</font>' : '<font color="Red">offline</font>')."</b></td>\n";
     echo "<td class='list' nowrap>";
     if (Admin::isActionAllowed() && !Config::getSafe('deny_change_user_status', false)){
         echo "<a href='users.php?id=".$arr['id']."&search=".@$_GET['search']."&action=cut_off'>".get_user_color($arr['id'])."</a>";
@@ -605,7 +618,7 @@ while($arr = $users->next()){
         echo "<b>".get_user_color($arr['id'])."</b>";
     }
 
-    if (Admin::isActionAllowed() && !check_keep_alive($arr['keep_alive']) && !Config::getSafe('deny_delete_user', false)){
+    if (Admin::isActionAllowed() && !Config::getSafe('deny_delete_user', false)){
         echo "&nbsp;&nbsp;";
         echo "<a href='#' onclick='if(confirm(\""._('Do you really want to delete this record?')."\")){document.location=\"users.php?del=1&id=".$arr['id']."&page=".@$_GET['page']."&search=".@$_GET['search']."\"}'>del</a>";
     }

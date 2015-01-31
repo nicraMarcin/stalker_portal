@@ -72,7 +72,9 @@ class Mysql
 
     private function getConnection($host, $user, $password, $db_name) {
 
-        if ($pos = strpos($host, ':')){
+        $pos = strpos($host, ':');
+
+        if ($pos && $pos != 1){
             $port = (int) substr($host, $pos + 1);
             $host = substr($host, 0, $pos);
         }else{
@@ -259,11 +261,7 @@ class Mysql
         $escaped_values = array();
         if (!empty($values)) {
             foreach ($values as $value) {
-                if (is_numeric($value)) {
-                    $escaped_values [] = $value;
-                } else {
-                    $escaped_values [] = "'" . $this->escape_str($value) . "'";
-                }
+                $escaped_values [] = "'" . $this->escape_str($value) . "'";
             }
             $values = implode(",", $escaped_values);
         } else {
@@ -725,14 +723,15 @@ class Mysql
 
     private function escape($value) {
 
-        //if(is_int($value) || strpos($value, '+')){
+
         if (is_int($value)) {
 
             return $value;
-            //}elseif (!in_array(strtoupper(trim($value)), array('NOW()', 'CURDATE()', 'CURTIME()')) && !strpos($value, '+')){
-        } elseif (!in_array(strtoupper(trim($value)), array('NOW()', 'CURDATE()', 'CURTIME()')) && strpos(strtoupper(trim($value)), 'UNIX_TIMESTAMP') === false) {
+
+        } elseif (!in_array(strtoupper(trim($value)), array('NOW()', 'CURDATE()', 'CURTIME()'))) {
 
             $value = "'" . $this->escape_str($value) . "'";
+
         } else {
 
             $this->disable_caching();
@@ -805,4 +804,11 @@ class Mysql
 
 class MysqlException extends Exception
 {
+    protected $message = "";
+    protected $code = 0;
+
+    public function __construct($message){
+        $this->message = $message;
+        error_log($message);
+    }
 }

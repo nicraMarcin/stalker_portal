@@ -145,7 +145,13 @@ h3{
                             <option value="MAG200" {{if stb_type==="MAG200"}}selected{{/if}} >MAG200</option>
                             <option value="MAG245" {{if stb_type==="MAG245"}}selected{{/if}} >MAG245</option>
                             <option value="MAG250" {{if stb_type==="MAG250"}}selected{{/if}} >MAG250</option>
+                            <option value="MAG254" {{if stb_type==="MAG254"}}selected{{/if}} >MAG254</option>
+                            <option value="MAG255" {{if stb_type==="MAG255"}}selected{{/if}} >MAG255</option>
+                            <option value="MAG270" {{if stb_type==="MAG270"}}selected{{/if}} >MAG270</option>
+                            <option value="MAG275" {{if stb_type==="MAG275"}}selected{{/if}} >MAG275</option>
+                            <option value="WR320" {{if stb_type==="WR320"}}selected{{/if}} >WR320</option>
                             <option value="AuraHD0" {{if stb_type==="AuraHD0"}}selected{{/if}} >AuraHD0</option>
+                            <option value="AuraHD1" {{if stb_type==="AuraHD1"}}selected{{/if}} >AuraHD1</option>
                             <option value="AuraHD9" {{if stb_type==="AuraHD9"}}selected{{/if}} >AuraHD9</option>
                         </select>
                     </td>
@@ -167,6 +173,10 @@ h3{
                     <td><input type="text" name="image_version_contains" value="${image_version_contains}"/></td>
                 </tr>
                 <tr>
+                    <td><?= _('Required')?> HardwareVersion</td>
+                    <td><input type="text" name="hardware_version_contains" value="${hardware_version_contains}"/></td>
+                </tr>
+                <tr>
                     <td><?= _('Update type')?></td>
                     <td>
                         <select name="update_type">
@@ -176,8 +186,12 @@ h3{
                     </td>
                 </tr>
                 <tr>
+                    <td><?= _('Prefix')?></td>
+                    <td><input type="text" name="prefix" value="${prefix}"/></td>
+                </tr>
+                <tr>
                     <td></td>
-                    <td><input type="submit" value="<?= _('Save')?>"/></td>
+                    <td><input type="submit" value="<?= htmlspecialchars(_('Save'), ENT_QUOTES)?>"/></td>
                 </tr>
             </table>
         </form>
@@ -199,7 +213,7 @@ h3{
 
         $('.add-block').live('click', function(event){
 
-            var empty_setting = {"idx":$('.blocks-container>div').length,"id":"0","enable":"0","require_image_version":"","require_image_date":"","image_version_contains":"","image_description_contains":"","update_type":"","changed":"","stb_type":""};
+            var empty_setting = {"idx":$('.blocks-container>div').length,"id":"0","enable":"0","require_image_version":"","require_image_date":"","image_version_contains":"","image_description_contains":"","update_type":"","changed":"","stb_type":"","prefix":""};
 
             $("#update_item_tmpl").tmpl(empty_setting).appendTo('.blocks-container');
 
@@ -214,7 +228,7 @@ h3{
 
             var item = $(this);
 
-            if (confirm('<?= _('Do you really want to delete this item?')?>')){
+            if (confirm('<?= htmlspecialchars(_('Do you really want to delete this item?'), ENT_QUOTES)?>')){
                 if (item.attr('href').indexOf('&id=0') != -1){
                     item.parent().parent().remove();
                     updateDisabledStbTypes();
@@ -231,9 +245,13 @@ h3{
         $('.stb-type').live('change', function(event){
             updateDisabledStbTypes()
         });
+
+        updateDisabledStbTypes();
     });
 
     function updateDisabledStbTypes(){
+
+        return true;
 
         var selected = {};
 
@@ -287,7 +305,7 @@ h3{
 
         </div>
 
-        <input type="button" value="<?= _('Add')?>" class="add-block">
+        <input type="button" value="<?= htmlspecialchars(_('Add'), ENT_QUOTES)?>" class="add-block">
     </td>
 </tr>
 </table>

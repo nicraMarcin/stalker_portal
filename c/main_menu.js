@@ -51,7 +51,7 @@ var main_menu = {
             }
 
             _debug('stb.player.channels', stb.player.channels);
-            if (stb.player.channels && stb.player.channels.length>0){
+            if (stb.player.channels && stb.player.channels.length>0 && module.tv){
                 this.hide();
                 stb.player.play_last();
             }
@@ -365,7 +365,7 @@ var main_menu = {
         this.map.push(
             {
                 "title"    : title,
-                "img"      : 'i' + resolution_prefix + '/' + img,
+                "img"      : 'template/' + loader.template + '/i' + resolution_prefix + '/' + img,
                 "cmd"      : cmd,
                 "sub"      : sub,
                 "module"   : module

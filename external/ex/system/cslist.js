@@ -105,8 +105,9 @@ function CScrollList ( parent ) {
 
 
 // extending
-extend(CScrollList, CBase);
-
+//extend(CScrollList, CBase);
+CScrollList.prototype = Object.create(CBase.prototype);
+CScrollList.prototype.constructor = CScrollList;
 
 /**
  * Create a new item and add it to the placeholder
@@ -244,6 +245,30 @@ CScrollList.prototype.Length = function () {
 	return this.handleInner.children.length;
 };
 
+
+/**
+ * Set scroll position relatively some list element
+ * @param {Object} item
+ * @param {Boolean} [makeFocused] - apply all attributes and corresponding actions
+ * @param {Boolean} [manageFocus] - set actual focus
+ */
+CScrollList.prototype.SetPosition = function ( item, makeFocused, manageFocus ) {
+	var index, page;
+	if ( makeFocused ) {
+		if ( manageFocus === undefined ) { manageFocus = this.manageFocus; }
+		this.Focused(item || this.FindOne(), true, manageFocus);
+	}
+	if ( this.activeItem !== null ) {
+		index = this.activeItem.offsetTop / this.itemHeight;
+		page = Math.floor(index / this.itemsPerPage);
+		// different methods to scroll
+		if ( this.scrollMode === 1 ) {
+			this.handleInner.scrollTop = (index - Math.floor((this.itemsPerPage - 1) / 2)) * this.itemHeight;
+		} else if ( this.scrollMode === 2 ) {
+			this.handleInner.scrollTop = (this.itemsPerPage * this.itemHeight * page);
+		}
+	}
+};
 
 /**
  * Set inner item flags and decoration

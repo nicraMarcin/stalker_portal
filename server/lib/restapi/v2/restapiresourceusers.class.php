@@ -11,7 +11,9 @@ class RESTApiResourceUsers extends RESTApiCollection
         $this->document = new RESTApiUsersDocument();
         $this->document->controllers->add(new RESTApiUserSettings());
         $this->document->controllers->add(new RESTApiUserPing());
+        $this->document->controllers->add(new RESTApiUserMediaInfo());
         $this->document->controllers->add(new RESTApiPvrSummary());
+        $this->document->controllers->add(new RESTApiUserMessage());
 
         $this->fields_map = array_fill_keys(array('id', "ls", "status", "mac"), true);
     }

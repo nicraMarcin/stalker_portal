@@ -8,15 +8,20 @@ class TvArchiveRecorder extends Storage
      *
      * @param array $task
      * @return bool
+     * @throws Exception
      */
     public function start($task){
 
         $url = $task['cmd'];
 
-        preg_match('/:\/\/([\d\.]+):(\d+)/', $url, $arr);
+        if (!preg_match('/:\/\//', $url, $arr)){
+            throw new Exception('URL wrong format');
+        }
 
         $ip   = $arr[1];
         $port = $arr[2];
+
+        $task['ch_id'] = (int) $task['ch_id'];
 
         $pid_file = $this->getRecPidFile($task['ch_id']);
 
@@ -29,7 +34,30 @@ class TvArchiveRecorder extends Storage
         }
 
         if (strpos($url, 'rtp://') !== false || strpos($url, 'udp://') !== false){
-            exec('nohup python '.PROJECT_PATH.'/dumpstream -a'.$ip.' -p'.$port.' -d'.$this->getRecordsPath($task).' -n'.$task['parts_number'].' > /dev/null 2>&1 & echo $!', $out);
+
+            $path = $this->getRecordsPath($task);
+
+            if ($path && is_dir($path)){
+                if (defined("ASTRA_RECORDER") && ASTRA_RECORDER){
+                    exec('astra '.PROJECT_PATH.'/dumpstream.lua'
+                        .' -A '.$url
+                        .' -d '.$path
+                        .' -n '.intval($task['parts_number'])
+                        .' > /dev/null 2>&1 & echo $!'
+                        , $out);
+                }else{
+                    exec('nohup python '.PROJECT_PATH.'/dumpstream'
+                        .' -a'.$ip
+                        .' -p'.$port
+                        .' -d'.$path
+                        .' -n'.intval($task['parts_number'])
+                        .' > /dev/null 2>&1 & echo $!'
+                        , $out);
+                }
+            }else{
+                throw new Exception('Wrong archive path or permission denied for new folder');
+            }
+
         }else{
             throw new DomainException('Not supported protocol');
         }
@@ -49,6 +77,9 @@ class TvArchiveRecorder extends Storage
             posix_kill($pid, 15);
             throw new IOException('PID file is not created');
         }
+
+        $archive = new TvArchiveTasks();
+        $archive->add($task);
 
         return true;
     }
@@ -90,6 +121,9 @@ class TvArchiveRecorder extends Storage
 
         unlink($pid_file);
 
+        $archive = new TvArchiveTasks();
+        $archive->del($ch_id);
+
         return posix_kill($pid, 9);
     }
     
@@ -108,7 +142,7 @@ class TvArchiveRecorder extends Storage
      * Return save dir for records
      *
      * @param array $task
-     * @return string
+     * @return string|false
      */
     private function getRecordsPath($task){
 
@@ -116,7 +150,10 @@ class TvArchiveRecorder extends Storage
 
         if (!is_dir($dir)){
             umask(0);
-            mkdir($dir, 0777, true);
+
+            if (!mkdir($dir, 0777, true)){
+                return false;
+            }
         }
 
         return $dir;

@@ -2,7 +2,8 @@
 
 require_once("./common.php");
 
-$archive = new TvArchiveTasks(TASKS_API_URL.STORAGE_NAME);
+$archive = new TvArchiveTasks();
+$archive->setApiUrl(API_URL.'tv_archive/'.STORAGE_NAME);
 
 $tasks = $archive->sync();
 

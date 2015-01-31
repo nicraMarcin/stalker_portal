@@ -155,14 +155,15 @@ watchdog.prototype.parse_result = function(data){
                     function(){
                         self.send_confirm(function(){
                             if (data.reboot_after_ok == 1){
+                                stb.Stop();
                                 stb.ExecAction('reboot');
                             }
                         });
                     });
-                
+
                 stb.msg.push(
                     {
-                        msg               : data.msg,
+                        msg               : (data.send_time ? '<span style="color: #555">[' + data.send_time + ']</span> ' : '') + data.msg.replace('%mac%', stb.mac).replace('%sn%', stb.serial_number),
                         auto_hide_timeout : data.auto_hide_timeout || 0
                     }
                 );
@@ -181,6 +182,7 @@ watchdog.prototype.parse_result = function(data){
             case 'update_subscription':
             {
                 if (stb.cur_off_on){
+                    stb.Stop();
                     stb.ExecAction('reboot');
                 }else{
                     stb.load_channels();
@@ -228,7 +230,6 @@ watchdog.prototype.parse_result = function(data){
             }
             case 'mount_all_storages':
             {
-                //stb.mount_home_dir(data.msg);
                 stb.set_storages(data.msg);
                 break;
             }

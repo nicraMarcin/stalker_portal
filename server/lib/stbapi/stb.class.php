@@ -16,7 +16,11 @@ interface Stb
 
     public function setAspect();
 
+    public function getTvAspects();
+
     public function getLocales();
+
+    public function checkPortalStatus();
 
     public function getLocalization();
 
@@ -44,9 +48,15 @@ interface Stb
 
     public function setTimeshiftSettings();
 
+    public function setHdmiReaction();
+
+    public function setLangPriority();
+
     public function setPlaybackBuffer();
 
     public function setSpdifMode();
+
+    public function setPortalPrefs();
 
     public function setCommonSettings();
 
@@ -55,4 +65,6 @@ interface Stb
     public function setPlaybackSettings();
 
     public function setStreamError();
+
+    public function setClockOnVideo();
 }

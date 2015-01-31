@@ -343,15 +343,27 @@ if (empty($packages)){
             </tr>
             <tr>
                 <td>pass:</td>
-                <td>[<?echo $parent_password?>] <a href="#" onclick="if(confirm('<?= _('Reset to default password?')?>')){document.location='profile.php?parent_password=default&id=<?echo $id?>'}"><?= _('Reset')?></a></td>
+                <td>[<?echo $parent_password?>] <a href="#" onclick="if(confirm('<?= htmlspecialchars(_('Reset to default password?'), ENT_QUOTES)?>')){document.location='profile.php?parent_password=default&id=<?echo $id?>'}"><?= htmlspecialchars(_('Reset'), ENT_QUOTES)?></a></td>
             </tr>
             <tr>
                 <td><?= _('favorite tv')?>:</td>
-                <td>[<? printf(_('%s channels'), $fav_ch_count)?>] <a href="#" onclick="if(confirm('<?= _('Reset favorite TV channels? The channels will be reset only if immediately restart the stb!')?>')){document.location='profile.php?fav_itv=default&id=<?echo $id?>'}"><?= _('Reset')?></a></td>
+                <td>[<? printf(_('%s channels'), $fav_ch_count)?>] <a href="#" onclick="if(confirm('<?= htmlspecialchars(_('Reset favorite TV channels? The channels will be reset only if immediately restart the stb!'), ENT_QUOTES)?>')){document.location='profile.php?fav_itv=default&id=<?echo $id?>'}"><?= _('Reset')?></a></td>
             </tr>
             <tr>
                 <td>version:</td>
-                <td><?= $arr['version']?></td>
+                <td><?= htmlspecialchars($arr['version'])?></td>
+            </tr>
+            <tr>
+                <td>hardware:</td>
+                <td><?= htmlspecialchars($arr['hw_version'])?></td>
+            </tr>
+            <tr>
+                <td>model:</td>
+                <td><?= htmlspecialchars($arr['stb_type'])?></td>
+            </tr>
+            <tr>
+                <td>locale:</td>
+                <td><?= htmlspecialchars($arr['locale'])?></td>
             </tr>
         </table>
         </td>
@@ -452,6 +464,13 @@ if (empty($packages)){
         <table align="center" width="80%">
 
             <? if (Config::getSafe('enable_tariff_plans', false)){?>
+
+            <? if (Config::getSafe('enable_tv_subscription_for_tariff_plans', false)){?>
+            <tr align="center">
+                <td><a href="subscribe.php?id=<?echo $id?>"><?= _('TV subscription')?></a> (<?echo kop2grn(get_cost_sub_channels())?>)</td>
+            </tr>
+            <?}?>
+
             <tr>
                 <td align="center">
                     <form method="post">
@@ -471,7 +490,7 @@ if (empty($packages)){
 
                             ?>
                         </select>
-                        <input type="submit" name="change_tariff_plan" value="<?= _('Change')?>">
+                        <input type="submit" name="change_tariff_plan" value="<?= htmlspecialchars(_('Change'), ENT_QUOTES)?>">
                     </form>
                 </td>
             </tr>
@@ -486,9 +505,9 @@ if (empty($packages)){
                     <table align="center" class="list" cellspacing="0" cellpadding="3">
                         <caption><?= _('Packages')?></caption>
                         <tr>
-                            <th>Название</th>
-                            <th>Опциональный</th>
-                            <th>Подписан</th>
+                            <th><?= _('Name')?></th>
+                            <th><?= _('Optional')?></th>
+                            <th><?= _('Subscribed')?></th>
                         </tr>
                         <?
                         foreach ($packages as $package){

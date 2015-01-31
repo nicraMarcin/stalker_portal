@@ -70,6 +70,12 @@ var loader = {
     head : document.getElementsByTagName("head")[0],
     max_load_percent : 50,
     step : 0,
+    template : 'default',
+
+    set_template : function(template){
+        _debug('loader.set_template', template);
+        this.template = template;
+    },
     
     add : function(modules){
         _debug('loader.add');
@@ -104,14 +110,26 @@ var loader = {
         _debug('loader.append');
         
         stb.loader.add_pos(this.step, 'append '+module);
-        
+
+        this.append_style(module);
+
+        this.append_javascript(module);
+    },
+
+    append_style : function(module){
+        _debug('loader.append_style', module);
+
         var _style = document.createElement('link');
         _style.type = "text/css";
         _style.rel = "stylesheet";
-        _style.href = module + resolution_prefix +".css";
+        _style.href = 'template/' + this.template + '/' + module + resolution_prefix +".css";
         this.head.appendChild(_style);
         _debug('append', _style.href);
-        
+    },
+
+    append_javascript : function(module){
+        _debug('loader.append_javascript', module);
+
         var _script = document.createElement('script');
         _script.type = "text/javascript";
         _script.src  = module + ".js";
@@ -189,8 +207,11 @@ function init(){
             }
             
             stb.player.prev_layer && stb.player.prev_layer.hide && stb.player.prev_layer.hide();
-            
-            stb.player.stop();
+
+            if (stb.player.on){
+                stb.player.stop();
+            }
+
             main_menu.show();
         }
         
@@ -220,10 +241,26 @@ function init(){
         
     }).bind(key.TV);
 
-    keydown_observer.addCustomEventListener("keypress", function(event){
-        //_debug('power keypress', event);
+    (function(){
+        if (module.radio && !module.radio.on){
 
-        if (stb.power_off){
+            keydown_observer.emulate_key(key.MENU);
+
+            main_menu.hide();
+            module.radio.show();
+            module.radio.cur_view = 'short';
+
+            module.radio.shift_row_callback = function(){
+                module.radio.play();
+                module.radio.shift_row_callback = null;
+                module.radio.cur_view = 'wide';
+            };
+        }
+    }).bind(key.AUDIO);
+
+    keydown_observer.addCustomEventListener("keypress", function(event){
+
+        if (stb.power_off && event.key != key.USB_MOUNTED && event.key != key.USB_UNMOUNTED){
             stb.switchPower();
             return false;
         }
@@ -245,7 +282,7 @@ function init(){
 
 </head>
 <body>
-<img src="i/loading_bg.gif" width="0" height="0"/>
-<img src="i/loading.png" width="0" height="0"/>
+<!--<img src="i/loading_bg.gif" width="0" height="0"/>
+<img src="i/loading.png" width="0" height="0"/>-->
 </body>
 </html>

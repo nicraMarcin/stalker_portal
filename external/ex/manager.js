@@ -23,7 +23,7 @@ CSListManager.init = function(handleInner, parentPage){
         */
     CSListManager.src = [];
     
-    this.playable = [MEDIA_TYPE_VIDEO, MEDIA_TYPE_AUDIO, MEDIA_TYPE_IMAGE/*, MEDIA_TYPE_STREAM*/];
+    this.playable = [MEDIA_TYPE_VIDEO, MEDIA_TYPE_AUDIO, MEDIA_TYPE_IMAGE];
         /**
         * Флаг отображающий состояние видимости компонента поиска
         * @type {Boolean}
@@ -73,7 +73,7 @@ CSListManager.init = function(handleInner, parentPage){
         this.action_open[MEDIA_TYPE_AUDIO]       = this.openFile;
         this.action_open[MEDIA_TYPE_IMAGE]       = this.openFile;
 
-}
+};
 
 
 CSListManager.Current = function () {
@@ -96,8 +96,7 @@ CSListManager.Open = function ( data ) {
     if(data.type !== MEDIA_TYPE_VIDEO && data.type !== MEDIA_TYPE_AUDIO && data.type !== MEDIA_TYPE_IMAGE){
         elclear(ListPage.Preview.body);
     }
-    var self            = this,
-        levelChange     = this.Build(data);
+    var levelChange     = this.Build(data);
         this.parentData = data;
 
     // level not changed
@@ -163,7 +162,7 @@ CSListManager.Open = function ( data ) {
             MainPage.LastActComp.Activate(true,true);
         }
     }
-}
+};
 
 
 /**
@@ -183,7 +182,7 @@ CSListManager.Build = function ( data ) {
         new CModalAlert(CSListManager.parent, LANG_MEDIA_DEFAULT_ERROR, LANG_MEDIA_ITEM_WRONG_TYPE, LANG_MEDIA_DEFAULT_CLOSE);
     }
     return levelChange;
-}
+};
 
 
 CSListManager.openBack = function(data){
@@ -201,16 +200,16 @@ CSListManager.openBack = function(data){
         CSListManager.trash.Clear();
         CSListManager.handleInner.removeChild(CSListManager.trash.handleInner);
         // обходим ограничение оnChange и возвращаем старое описание и картинку
-        CSListManager.parent.onFocusAction(CSListManager.Current().Current());
+        CSListManager.parent.onFocusAction(CSListManager.Current().Current(), '');
     }
     return this.LEVEL_CHANGE_UP;
-}
+};
 
 
 CSListManager.openTypeNone = function(data){
     echo('openTypeNone');
-    alert('Wrong file type. Press "BACK" to exit.');
-}
+    echo('Wrong file type. Press "BACK" to exit.');
+};
 
 
 CSListManager.openRoot = function(data){
@@ -223,7 +222,7 @@ CSListManager.openRoot = function(data){
     CSListManager.Current().onFocus = function(current_item){
         echo(current_item, 'CSListManager.Current().onFocus');
         // обычное поведение правого меню при просмотре списка папок
-        CSListManager.parent.onFocusAction(current_item);
+        CSListManager.parent.onFocusAction(current_item, '');
         // навешиваем на onFocus слежение за текущей позицией чтобы знать когда дойдем до предпоследнего экрана и послать запрос на дополнение 
         var curr_list_length = CSListManager.Current().handleInner.childNodes.length;
         var cur_list_handleInner = CSListManager.Current().handleInner;
@@ -234,7 +233,7 @@ CSListManager.openRoot = function(data){
             echo('iid_scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per='+ListPage.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {} );
         }
-    }
+    };
     // навешиваем на csroll слежение за текущей позицией чтобы знать когда дойдем до текущего края и послать запрос на дополнение 
     CSListManager.Current().handleInner.onscroll = function () { 
         echo('on scroll ');
@@ -247,12 +246,12 @@ CSListManager.openRoot = function(data){
             echo('scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {} );
         }
-    } 
+    };
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('first request is='+data.url+'&p=0&per='+this.parent.ItemsPerPage);
     ajax ( 'GET', data.url+'&p=0&per='+this.parent.ItemsPerPage, htmlListParser, {} );
     return this.LEVEL_CHANGE_DOWN;       
-}
+};
 
 
 CSListManager.openGSearchRoot = function(data){
@@ -263,7 +262,7 @@ CSListManager.openGSearchRoot = function(data){
     CSListManager.Current().onFocus = function(current_item){
         echo(current_item, 'CSListManager.Current().onFocus');
         // обычное поведение правого меню при просмотре списка папок
-        CSListManager.parent.onFocusAction(current_item);
+        CSListManager.parent.onFocusAction(current_item, '');
         // навешиваем на onFocus слежение за текущей позицией чтобы знать когда дойдем до предпоследнего экрана и послать запрос на дополнение 
         var curr_list_length = CSListManager.Current().handleInner.childNodes.length;
         var cur_list_handleInner = CSListManager.Current().handleInner;
@@ -273,7 +272,7 @@ CSListManager.openGSearchRoot = function(data){
             echo('iid_scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per=20');
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlSearchParser, {} );
         }
-    }
+    };
         
     // навешиваем на csroll слежение за текущей позицией чтобы знать когда дойдем до текущего края и послать запрос на дополнение 
     CSListManager.Current().handleInner.onscroll = function () { 
@@ -287,14 +286,14 @@ CSListManager.openGSearchRoot = function(data){
             echo('scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlSearchParser, {} );
         }
-    }
+    };
            
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('first request is='+data.url+'&p=0&per='+this.parent.ItemsPerPage);
     ajax ( 'GET', data.url+'&p=0&per='+this.parent.ItemsPerPage, htmlSearchParser, {} );  
     
     return this.LEVEL_CHANGE_DOWN;
-}
+};
 
 
 CSListManager.openRefresh = function(data){
@@ -309,7 +308,7 @@ CSListManager.openRefresh = function(data){
     ajax ( 'GET', data.url+'&p=0&per='+this.parent.ItemsPerPage, htmlSearchParser, {} );  
     
     return this.LEVEL_CHANGE_NONE;
-}
+};
 
 
 
@@ -331,7 +330,7 @@ CSListManager.openGSearchFolder = function(data){
             echo('iid_scroll=100%=>ajax='+doc.data.url+'?p='+doc.page_index+'&per='+ListPage.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {} );
         }
-    }
+    };
     // навешиваем на csroll слежение за текущей позицией чтобы знать когда дойдем до текущего края и послать запрос на дополнение 
     CSListManager.Current().handleInner.onscroll = function () { 
         echo('on scroll ');
@@ -344,12 +343,12 @@ CSListManager.openGSearchFolder = function(data){
             echo('scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {} );
         }
-    } 
+    };
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('first request is='+data.url+'?p=0&per='+this.parent.ItemsPerPage);
     ajax ( 'GET', data.url+'?p=0&per='+this.parent.ItemsPerPage, htmlListParser, {} );
     return this.LEVEL_CHANGE_DOWN; 
-}
+};
 
 
 
@@ -367,7 +366,7 @@ CSListManager.openMediaObject = function(data){
     CSListManager.Current().onFocus = function(current,previous){
         // обычное поведение правого меню при просмотре списка обьекта
         CSListManager.parent.onFocusAction(current,previous);
-    }
+    };
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('AJAX START='+data.url);
     ajax ( 'GET', data.url, htmlObjectParser, {} );
@@ -376,7 +375,7 @@ CSListManager.openMediaObject = function(data){
         CSListManager.parent.messageHint = new CModalHint(CSListManager.parent, 'Loading...'/*, false, true*/);
     },1);
     return this.LEVEL_CHANGE_DOWN; 
-}
+};
 
 
 CSListManager.openMediaFolder = function(data){
@@ -397,7 +396,7 @@ CSListManager.openMediaFolder = function(data){
             echo('iid_scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per='+ListPage.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {} );
         }
-    }
+    };
     // навешиваем на csroll слежение за текущей позицией чтобы знать когда дойдем до текущего края и послать запрос на дополнение 
     CSListManager.Current().handleInner.onscroll = function () { 
         echo('on scroll ');
@@ -410,12 +409,12 @@ CSListManager.openMediaFolder = function(data){
             echo('scroll=100%=>ajax='+doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage);
             ajax ( 'GET', doc.data.url+'&p='+doc.page_index+'&per='+CSListManager.parent.ItemsPerPage, htmlListParser, {} );
         }
-    } 
+    };
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('first request is='+data.url+'&p=0&per='+this.parent.ItemsPerPage);
     ajax ( 'GET', data.url+'&p=0&per='+this.parent.ItemsPerPage, htmlListParser, {} );
     return this.LEVEL_CHANGE_DOWN;         
-}
+};
 
 
 CSListManager.openRadioObject = function(data){
@@ -432,7 +431,7 @@ CSListManager.openRadioObject = function(data){
     CSListManager.Current().onFocus = function(current,previous){
         // обычное поведение правого меню при просмотре списка обьекта
         CSListManager.parent.onFocusAction(current,previous);
-    }
+    };
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('AJAX START='+data.url);
     ajax ( 'GET', data.url, htmlRadioParser, {} );
@@ -442,7 +441,7 @@ CSListManager.openRadioObject = function(data){
     },1);
     
     return this.LEVEL_CHANGE_DOWN;
-}
+};
 
 
 CSListManager.openActorsFolder = function(data){
@@ -453,13 +452,13 @@ CSListManager.openActorsFolder = function(data){
     CSListManager.Current().onFocus = function(current,previous){
         // обычное поведение правого меню при просмотре списка папок
         this.parent.onFocusAction(current,previous);
-    }
+    };
     // источник взятия данных - сохраняется на предыдущей странице перед началом работы данной страницы
     echo('first request is='+data.url);
     ajax ( 'GET', data.url, htmlActorsParser, {charset:'utf-8'} );
     
     return this.LEVEL_CHANGE_DOWN; 
-}
+};
 
 
 CSListManager.openUnknownType = function(data){
@@ -471,7 +470,7 @@ CSListManager.openUnknownType = function(data){
     ajax ( 'GET', data.url, htmlWhatIsThisParser, { charset:'utf-8' } );
     
     return this.LEVEL_CHANGE_DOWN; 
-}
+};
 
 
 /**
@@ -481,16 +480,15 @@ CSListManager.openUnknownType = function(data){
  */
 CSListManager.openFile = function ( data ) {
     echo(data,'openFile');
-    var self = this,
-    list = [];
+    var list = [];
 
 	// playing video (showing a picture) or not
 	if ( MediaPlayer.playNow || MediaPlayer.obj !== null ) {
 		MediaPlayer.changeScreenMode(true);
 		MediaPlayer.Show(true, this.parent);
 		// autohide info panel
-		MediaPlayer.showInfo(true);
-		MediaPlayer.timer.showInfo = window.setTimeout(function(){MediaPlayer.showInfo(false);},3000);
+//		MediaPlayer.showInfo(true);
+//		MediaPlayer.timer.showInfo = window.setTimeout(function(){MediaPlayer.showInfo(false);},3000);
 		// stay here
 		return this.LEVEL_CHANGE_NONE;
 	}
@@ -541,4 +539,4 @@ CSListManager.AddCSList = function(data){
     CSListManager.src.push(slist);
     CSListManager.Current().Show(true);
     CSListManager.Current().Activate(true); 
-}
+};

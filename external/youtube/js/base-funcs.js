@@ -344,6 +344,15 @@ function parseYoutubePage(html, playNow) {
 
 function parseYoutubePage_new(html, playNow) {
     var s = /"url_encoded_fmt_stream_map": "(.*?)"/.exec(html);
+
+    if (!s || Array.isArray(s) && !s[1]){
+        log('\n\ns is null\n\n');
+        player.stop();
+        loading.hide();
+        toast.show(!s ? lang.video_not_available : lang.video_not_available_on_device);
+        return;
+    }
+
     log('\n\n'+s.length+'\n\n');
     log('\n\n'+s[1]+'\n\n');
     var str = '({';
@@ -357,7 +366,14 @@ function parseYoutubePage_new(html, playNow) {
         r[i] = unescape(r[i]);
 
         try{
-            var sig = /sig=([^\\]*)/igm.exec(r[i])[1];
+
+            var url = /url=([^\\]*)/igm.exec(r[i])[1];
+            log('\n\n'+url+'\n\n');
+
+            if (!url){
+                throw new Error("Empty url");
+            }
+
         }catch(e){
             player.stop();
             loading.hide();
@@ -371,20 +387,10 @@ function parseYoutubePage_new(html, playNow) {
             return;
         }
 
-        var link_start = r[i].substring(r[i].indexOf('http://'));
-        var link_end = link_start.indexOf('\\');
+        var m = /itag\=(\d{1,})/.exec(url);
+        str+=m[1]+':\''+url;
 
-        if (link_end == - 1){
-            link_end = undefined;
-        }
-
-        var link = link_start.substring(0, link_end);
-
-		var m = /itag\=(\d{1,})/.exec(r[i]);
-        str+=m[1]+':\''+link;
-		str+="&signature="+sig;
-
-		str+='\',';
+        str+='\',';
     }
     str =  str.substr(0, str.length - 1) + '})';
     if(!playNow || playNow == true) {

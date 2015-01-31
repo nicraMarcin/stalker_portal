@@ -29,6 +29,7 @@ if (!empty($_POST['add']) && !empty($_POST['name'])){
         'external_id' => empty($_POST['external_id']) ? '' : $_POST['external_id'],
         'type' => $_POST['package_type'],
         'rent_duration' => $_POST['rent_duration'],
+        'price' => $_POST['price'],
         'all_services' => $all_services
     );
 
@@ -74,6 +75,7 @@ if (!empty($id)){
             'external_id' => empty($_POST['external_id']) ? '' : $_POST['external_id'],
             'type' => $_POST['package_type'],
             'rent_duration' => $_POST['rent_duration'],
+            'price' => $_POST['price'],
             'all_services' => $all_services
         );
 
@@ -122,6 +124,36 @@ if (@$_GET['edit'] && !empty($id)){
     $edit_package = Mysql::getInstance()->from('services_package')->where(array('id' => $id))->get()->first();
     $edit_services = Mysql::getInstance()->from('service_in_package')->where(array('package_id' => $id))->get()->all('service_id');
 }
+
+
+function get_users_count_in_package($package){
+
+    $count = 0;
+
+    $tariff_plans_ids = Mysql::getInstance()->from('package_in_plan')->where(array('optional' => 0, 'package_id' => $package['id']))->get()->all('plan_id');
+
+    $tariff_plans = Mysql::getInstance()->from('tariff_plan')->in('id', $tariff_plans_ids)->get()->all();
+
+    foreach ($tariff_plans as $tariff){
+        $count += get_users_count_in_tariff($tariff);
+    }
+
+    $count += Mysql::getInstance()->from('user_package_subscription')->where(array('package_id' => $package['id']))->count()->get()->counter();
+
+    return $count;
+}
+
+function get_users_count_in_tariff($tariff){
+
+    $tariff_ids = array($tariff['id']);
+
+    if ($tariff['user_default'] == 1){
+        $tariff_ids[] = 0;
+    }
+
+    return Mysql::getInstance()->from('users')->count()->in('tariff_plan_id', $tariff_ids)->get()->counter();
+}
+
 
 ?>
 <html>
@@ -248,8 +280,10 @@ if (@$_GET['edit'] && !empty($id)){
 
                 if (type == 'single'){
                     $('.rent-duration-block').show();
+                    $('.price-block').show();
                 }else{
                     $('.rent-duration-block').hide();
+                    $('.price-block').hide();
                 }
             });
 
@@ -330,6 +364,7 @@ if (@$_GET['edit'] && !empty($id)){
                 <tr>
                     <td><?= _('External ID')?></td>
                     <td><?= _('Title')?></td>
+                    <td><?= _('Total users')?></td>
                     <td>&nbsp;</td>
                 </tr>
                 <?
@@ -337,6 +372,7 @@ if (@$_GET['edit'] && !empty($id)){
                     echo '<tr>';
                     echo '<td>'.$package['external_id'].'</td>';
                     echo '<td>'.$package['name'].'</td>';
+                    echo '<td style="color: #555">'.get_users_count_in_package($package).'</td>';
                     echo '<td>';
                     echo '<a href="?edit=1&id='.$package['id'].'">edit</a>&nbsp;';
                     echo '<a href="?del=1&id='.$package['id'].'" onclick="if(confirm(\''._('Do you really want to delete this record?').'\')){return true}else{return false}">del</a>';
@@ -393,6 +429,13 @@ if (@$_GET['edit'] && !empty($id)){
                         <td align="right"><?= _('Rent duration')?></td>
                         <td>
                             <input type="text" name="rent_duration" size="7" value="<?= @$edit_package['rent_duration']?>"> <?= _('h')?>
+                        </td>
+                    </tr>
+
+                    <tr style="display: none" class="price-block">
+                        <td align="right"><?= _('Price')?></td>
+                        <td>
+                            <input type="number" min="0" step="0.01" name="price" value="<?= @$edit_package['price']?>">
                         </td>
                     </tr>
 

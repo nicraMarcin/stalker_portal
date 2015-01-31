@@ -12,8 +12,10 @@ class ImageAutoUpdate
         'require_image_date',
         'image_version_contains',
         'image_description_contains',
+        'hardware_version_contains',
         'update_type',
-        'stb_type'
+        'stb_type',
+        'prefix'
     );
 
 
@@ -53,7 +55,7 @@ class ImageAutoUpdate
 
         self::checkSettingsStorage();
 
-        return Mysql::getInstance()->from("image_update_settings")->get()->all();
+        return Mysql::getInstance()->from("image_update_settings")->orderby('id')->get()->all();
     }
 
     /**
@@ -65,7 +67,7 @@ class ImageAutoUpdate
             ->from('image_update_settings')
             ->where(array('stb_type' => $stb_type, 'enable' => 1))
             ->get()
-            ->first();
+            ->all();
     }
 
     public static function create($settings){

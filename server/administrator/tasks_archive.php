@@ -67,7 +67,7 @@ a:hover{
 </tr>
 <tr>
     <td width="100%" align="left" valign="bottom">
-        <a href="stat_moderators.php"><< <?= _('Back')?></a>
+        <a href="<?= isset($_GET['id']) ? 'tasks_archive.php' : 'stat_moderators.php'?>"><< <?= _('Back')?></a>
     </td>
 </tr>
 <tr>
@@ -163,10 +163,10 @@ if (@$_GET['id']){
     
     $archive_id = intval($_GET['id']);
     
-    $sql = "select * from administrators where access=2";
+    $sql = "select * from administrators";
     
     if (!Admin::isPageActionAllowed()){
-        $sql .= " and login='".$_SESSION['login']."'";
+        $sql .= " where login='".$_SESSION['login']."'";
     }
 
     $administrators = Mysql::getInstance()->query($sql);
@@ -180,6 +180,7 @@ if (@$_GET['id']){
         <tr>
         <td align="center">
         <b><?echo $arr['login'] ?></b>
+        <center><?= _('SD movies')?></center>
         <table border="1" width="100%" cellspacing="0">
             <tr>
                 <td>#</td>
@@ -190,23 +191,29 @@ if (@$_GET['id']){
             </tr>
             <?
             
-            $done_tasks = Mysql::getInstance()->from('moderator_tasks')->where(array(
+            $done_tasks = Mysql::getInstance()
+            ->select('video.name, video.time, moderator_tasks.id, start_time, end_time')
+            ->from('moderator_tasks')
+            ->where(array(
                 'ended'    => 1,
                 'rejected' => 0,
                 'archived' => $archive_id,
-                'to_usr'   => $uid
-            ))->get();
+                'to_usr'   => $uid,
+                'hd'       => 0
+            ))
+            ->join('video', 'video.id', 'media_id', 'INNER')
+            ->get();
             
             $length = 0;
             $total_length = 0;
             $num = 0;
             while($arr_done = $done_tasks->next()){
                 $num++;
-                $length = get_media_length_by_id($arr_done['media_id']);
+                $length = $arr_done['time'];
                 $total_length += $length;
                 echo "<tr>";
                 echo "<td>$num</td>";
-                echo "<td><a href='msgs.php?task={$arr_done['id']}'>".get_media_name_by_id($arr_done['media_id'])."</a></td>";
+                echo "<td><a href='msgs.php?task={$arr_done['id']}'>".$arr_done['name']."</a></td>";
                 echo "<td nowrap>".$arr_done['start_time']."</td>";
                 echo "<td nowrap>".$arr_done['end_time']."</td>";
                 echo "<td align='right'>".$length."</td>";
@@ -221,6 +228,58 @@ if (@$_GET['id']){
     </table>
     <br>
     <br>
+
+
+    <center><?= _('HD movies')?></center>
+    <table border="1" width="100%" cellspacing="0">
+        <tr>
+            <td>#</td>
+            <td><?= _('Movie')?></td>
+            <td><?= _('Opening date')?></td>
+            <td><?= _('Closing date')?></td>
+            <td width="100"><?= _('Duration, min')?></td>
+        </tr>
+        <?
+
+        $done_tasks = Mysql::getInstance()
+            ->select('video.name, video.time, moderator_tasks.id, start_time, end_time')
+            ->from('moderator_tasks')
+            ->where(array(
+                'ended'    => 1,
+                'rejected' => 0,
+                'archived' => $archive_id,
+                'to_usr'   => $uid,
+                'hd'       => 1
+            ))
+            ->join('video', 'video.id', 'media_id', 'INNER')
+            ->get();
+
+        $length = 0;
+        $total_length = 0;
+        $num = 0;
+        while($arr_done = $done_tasks->next()){
+            $num++;
+            $length = $arr_done['time'];
+            $total_length += $length;
+            echo "<tr>";
+            echo "<td>$num</td>";
+            echo "<td><a href='msgs.php?task={$arr_done['id']}'>".$arr_done['name']."</a></td>";
+            echo "<td nowrap>".$arr_done['start_time']."</td>";
+            echo "<td nowrap>".$arr_done['end_time']."</td>";
+            echo "<td align='right'>".$length."</td>";
+            echo "</tr>";
+        }
+        ?>
+    </table>
+    <table border="0" width="100%">
+        <tr>
+            <td  width="100%" align="right"> <?= _('Total duration, min')?>:  <b><? echo $total_length?></b></td>
+        </tr>
+    </table>
+    <br>
+    <br>
+
+
     <center><?= _('Rejected tasks')?></center>
     <table border="1" width="100%" cellspacing="0">
         <tr>
@@ -272,7 +331,7 @@ else{
     $page_offset=$page*$MAX_PAGE_ITEMS;
     $total_pages=(int)($total_items/$MAX_PAGE_ITEMS+0.999999);
 
-    $archive_tasks = Mysql::getInstance()->from('tasks_archive')->limit($MAX_PAGE_ITEMS, $page_offset)->get();
+    $archive_tasks = Mysql::getInstance()->from('tasks_archive')->orderby('year, month')->limit($MAX_PAGE_ITEMS, $page_offset)->get();
 
     while($arr = $archive_tasks->next()){
 

@@ -235,9 +235,9 @@ function sub(form){
 
 
     var form_ = document.getElementById('sub_form');
-    
-    form_.action = form_.action +'?save=1';
-    form_.method = 'POST';
+
+    form_.setAttribute('action', form_.action +'?save=1');
+    form_.setAttribute('method', 'POST');
     form_.submit();
 }
 </script>
@@ -357,7 +357,7 @@ function get_bonus_channels_opt(){
         <table border="0" height="100%">
         <tr>
             <td height="80%" align="center">
-            <input type="button" value="<?= _('All')?> >>"  onclick="add_all()"/><br>
+            <input type="button" value="<?= htmlspecialchars(_('All'), ENT_QUOTES)?> >>"  onclick="add_all()"/><br>
             <input type="button" value=">>"  onclick="add()"/><br>
             <input type="button" value="<<" onclick="del()"/><br>
             <input type="button" value="<< <?= _('All')?>" onclick="del_all()"/>
@@ -372,7 +372,7 @@ function get_bonus_channels_opt(){
             <td height="10%" align="center" valign="bottom">
             <input type="hidden" name="sub_ch" id="sub_ch"/>
             <input type="hidden" name="bonus_ch" id="bonus_ch"/>
-            <input type="button" value="<?= _('Save')?>" onclick="sub(this.form)"/>
+            <input type="button" value="<?= htmlspecialchars(_('Save'), ENT_QUOTES)?>" onclick="sub(this.form)"/>
             </td>
         </tr>
         </table>

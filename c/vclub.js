@@ -10,7 +10,7 @@
         
         this.layer_name = 'vclub';
         
-        this.row_blocks  = ['hd', 'sd', 'fav', 'lock', 'name', 'today', 'yesterday', 'week_and_more'];
+        this.row_blocks  = ['hd', 'sd', 'fav', 'lock', 'low_quality', 'name', 'today', 'yesterday', 'week_and_more'];
         
         this.load_params = {
             'type'   : 'vod',
@@ -314,7 +314,7 @@
         
         this.hide = function(do_not_reset){
             
-            _debug('vclub.hide');
+            _debug('vclub.hide', do_not_reset);
             
             if(!do_not_reset){
                 this.search_box && this.search_box.reset && this.search_box.reset();
@@ -332,6 +332,10 @@
             this.storage_switch.on && this.storage_switch.hide && this.storage_switch.hide();
 
             stb.player.pause && stb.player.pause.on && stb.player.hide_pause();
+
+            if (!do_not_reset && stb.player.on){
+                stb.player.stop && stb.player.stop();
+            }
 
             this.clear_short_info();
             
@@ -413,6 +417,10 @@
 
             var info = '';
 
+            if (item.rating_kinopoisk && stb.profile['kinopoisk_rating']){
+                info += '<span>' + get_word('vclub_rating') + ': </span>' + item.rating_kinopoisk + '<br>';
+            }
+
             if (item.rent_info){
                 info += get_word('vclub_purchased');
 
@@ -430,14 +438,15 @@
                 info += '<span>' + get_word('vclub_rating_mpaa') + ': </span>' + item.rating_mpaa + '<br>';
             }
 
-            info += '<span>' + word['vclub_genre'] + ': </span>' + item.genres_str
-                + '<br><span>' + word['vclub_year'] + ': </span>' + item.year
-                + ' <span>' + word['vclub_length'] + ': </span>' + item.time + ' ' + word['vclub_minutes'] + '.<br>'
-                + '<span>' + word['vclub_director'] + ': </span>' + item.director + '<br>';
+            info += '<span>' + word['vclub_genre'] + ': </span>' + item.genres_str;
 
-            if (item.rating_kinopoisk && stb.profile['kinopoisk_rating']){
-                info += '<span>' + get_word('vclub_rating') + ': </span>' + item.rating_kinopoisk;
+            if (item.country){
+                info += '<br><span>' + word['vclub_country'] + ': </span>' + item.country
             }
+
+            info += '<br><span>' + word['vclub_year'] + ': </span>' + item.year
+                + ' <span>' + word['vclub_length'] + ': </span>' + item.time + ' ' + word['vclub_minutes'] + '.<br>'
+                + '<span>' + word['vclub_director'] + ': </span>' + item.director;
 
             this.short_info_box.innerHTML = info;
             this.screenshot_box.innerHTML = '<img src="' + item.screenshot_uri + '">';
@@ -624,6 +633,8 @@
                 this.hide();
                 main_menu.show();
             }).bind(key.EXIT, this).bind(key.LEFT, this).bind(key.MENU, this);
+
+            this.load_data.bind(key.REFRESH, this);
         };
 
         this.check_for_storage_selection = function(play_url){
@@ -746,6 +757,13 @@
             _debug('vclub.check_for_play', play_url, storage);
             
             _debug('lock', this.data_items[this.cur_row].lock);
+
+            _debug('this.load_params[category]', this.load_params['category']);
+
+            if (this.load_params['category'] == 'coming_soon'){
+                stb.notice.show(get_word('coming_soon_video'));
+                return;
+            }
 
             var self = this;
 
@@ -966,24 +984,33 @@
             _debug('vclub.add_download', item);
             
             _debug('path: ', this.data_items[this.cur_row].path);
+            _debug('url', url);
+
+            if (this.data_items[this.cur_row].protocol == 'custom'){
+                url = this.data_items[this.cur_row].cmd;
+                var url_match = /(\S+):\/\/(\S+)/.exec(url);
+                _debug('url_match', url_match);
+                if (url_match){
+                    url = url_match[0];
+                }
+            }
 
             var filename = this.data_items[this.cur_row].path;
 
-            if (this.data_items[this.cur_row].cur_series){
+            if (this.data_items[this.cur_row].cur_series && parseInt(this.data_items[this.cur_row].cur_series, 10) != 0){
                 filename += '_E' + this.data_items[this.cur_row].cur_series;
             }
 
             if (url){
                 var ext = /\.(\w*)$/.exec(url);
+                if (!ext){
+                    ext = [,'mpg'];
+                }
             }else{
                 ext = [,'mpg'];
             }
 
-            if (ext){
-                filename += '.'+ext[1];
-            }else{
-                filename = undefined;
-            }
+            filename += '.'+ext[1];
 
             _debug('filename: ', filename);
 
@@ -992,14 +1019,9 @@
             var video_cmd = this.data_items[this.cur_row].cmd;
             var episode   = this.data_items[this.cur_row].cur_series || 0;
 
-            var dialog_options = {"parent" : this, "url" : url, "name" : filename};
+            var dialog_options = {"parent" : this, "url" : url, "name" : filename, "secure_url" : true};
 
             if (!url){
-
-                /*dialog_options.url = function(callback){
-                    self.get_link(video_cmd, episode, callback);
-                };*/
-
                 dialog_options.url = {"secure_url" : true, "type" : "vclub", "exec" : "module.vclub.get_link", "scope" : "module.vclub", "options" : [video_cmd, episode]};
             }
 
@@ -1189,7 +1211,7 @@
         {"label" : word['vclub_by_addtime'], "cmd" : function(){this.parent.load_params.fav = false; this.parent.load_params.sortby = 'added'; this.parent.load_params.hd = false; this.parent.load_params.not_ended = false}},
         {"label" : word['vclub_by_title'], "cmd" : function(){this.parent.load_params.fav = false; this.parent.load_params.sortby = 'name'; this.parent.load_params.hd = false; this.parent.load_params.not_ended = false}},
         {"label" : word['vclub_top'], "cmd" : function(){this.parent.load_params.fav = false; this.parent.load_params.sortby = 'top'; this.parent.load_params.hd = false; this.parent.load_params.not_ended = false}},
-        {"label" : word['vclub_only_hd'], "cmd" : function(){this.parent.load_params.sortby = 'name'; this.parent.load_params.fav = false; this.parent.load_params.hd = true; this.parent.load_params.not_ended = false}},
+        {"label" : word['vclub_only_hd'], "cmd" : function(){this.parent.load_params.sortby = 'added'; this.parent.load_params.fav = false; this.parent.load_params.hd = true; this.parent.load_params.not_ended = false}},
         {"label" : word['vclub_only_favorite'], "cmd" : function(){this.parent.load_params.sortby = 'name'; this.parent.load_params.fav = true; this.parent.load_params.hd = false; this.parent.load_params.not_ended = false}},
         {"label" : word['vclub_not_ended'], "cmd" : function(){this.parent.load_params.sortby = 'last_ended'; this.parent.load_params.fav = false; this.parent.load_params.hd = false; this.parent.load_params.not_ended = true}}
     ];

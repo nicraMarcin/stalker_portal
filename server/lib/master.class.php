@@ -798,7 +798,7 @@ abstract class Master
      *
      * @param string $storage_name
      */
-    private function incrementStorageDeny($storage_name){
+    protected function incrementStorageDeny($storage_name){
         
         $storage = $this->db->from('storage_deny')->where(array('name' => $storage_name))->get()->first();
         
@@ -840,6 +840,8 @@ abstract class Master
         }else{
             RESTClient::$from = $this->stb->mac;
         }
+
+        RESTClient::setAccessToken($this->createAccessToken());
 
         foreach ($this->storages as $name => $storage){
             $clients[$name] = new RESTClient('http://'.$storage['storage_ip'].'/stalker_portal/storage/rest.php?q=');
@@ -886,6 +888,27 @@ abstract class Master
         echo $exception->getMessage()."\n".$exception->getTraceAsString();
         $this->addToLog($exception->getMessage());
     }
+
+    private function createAccessToken(){
+
+        $key = md5(mktime(1).uniqid());
+
+        $cache = Cache::getInstance();
+
+        $result = $cache->set($key, 'storage', 0, 120);
+
+        return $key;
+    }
+
+    public static function checkAccessToken($token){
+
+        if (!$token){
+            return false;
+        }
+
+        $val = Cache::getInstance()->get($token);
+        return $val === 'storage';
+    }
 }
 
 class MasterException extends Exception{
@@ -899,6 +922,16 @@ class MasterException extends Exception{
 
     public function getStorageName(){
         return $this->storage_name;
+    }
+
+}
+
+class StorageSessionLimitException extends MasterException{
+
+    public $message = 'Session limit';
+
+    public function __construct($storage_name){
+        $this->storage_name = $storage_name;
     }
 
 }

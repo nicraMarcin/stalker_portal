@@ -235,7 +235,6 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
             $field_name = 'count_second_0_5';
         }
 
-        //$video = $this->db->getFirstData('video', array('id' => $video_id));
         $video = $this->db->from('video')->where(array('id' => $video_id))->get()->first();
 
         $this->db->update('video',
@@ -258,7 +257,6 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
             array('time_last_play_video' => 'NOW()'),
             array('id' => $this->stb->id));
 
-        //$today_record = $this->db->getFirstData('daily_played_video', array('date' => 'CURDATE()'));
         $today_record = $this->db->from('daily_played_video')->where(array('date' => date('Y-m-d')))->get()->first();
 
         if (empty($today_record)) {
@@ -282,11 +280,6 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
 
         }
 
-        /*$played_video = $this->db->getData('stb_played_video',
-        array(
-            'uid' => $this->stb->id,
-            'video_id' => $video_id
-        ));*/
         $played_video = $this->db->from('stb_played_video')
             ->where(array(
             'uid' => $this->stb->id,
@@ -313,6 +306,29 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
                     'video_id' => $video_id
                 ));
 
+        }
+
+        if (Config::getSafe('enable_tariff_plans', false)){
+
+            $user = User::getInstance(Stb::getInstance()->id);
+            $package = $user->getPackageByVideoId($video['id']);
+
+            if (!empty($package) && $package['service_type'] == 'single'){
+
+                $video_rent_history = Mysql::getInstance()
+                    ->from('video_rent_history')
+                    ->where(array(
+                        'video_id' => $video['id'],
+                        'uid'      => Stb::getInstance()->id
+                    ))
+                    ->orderby('rent_date', 'DESC')
+                    ->get()
+                    ->first();
+
+                if (!empty($video_rent_history)){
+                    Mysql::getInstance()->update('video_rent_history', array('watched' => $video_rent_history['watched'] + 1), array('id' => $video_rent_history['id']));
+                }
+            }
         }
 
         return true;
@@ -570,7 +586,9 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
             $where['year'] = $_REQUEST['years'];
         }
 
-        if (@$_REQUEST['category'] && @$_REQUEST['category'] !== '*') {
+        if (!empty($_REQUEST['category']) && $_REQUEST['category'] == 'coming_soon'){
+            $ids = Mysql::getInstance()->from('moderator_tasks')->where(array('ended' => 0, 'media_type' => 2))->get()->all('media_id');
+        }elseif (@$_REQUEST['category'] && @$_REQUEST['category'] !== '*') {
             $where['category_id'] = intval($_REQUEST['category']);
         }
 
@@ -624,6 +642,10 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
             ->from('video')
             ->where($where)
             ->where($where_genre, 'OR ');
+
+        if (isset($ids)){
+            $data->in('id', $ids);
+        }
 
         if (!empty($genres_ids) && is_array($genres_ids)) {
 
@@ -781,7 +803,7 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
                 $this->response['data'][$i]['position'] = 0;
             }
 
-            if (!empty($not_ended[$this->response['data'][$i]['id']])){
+            if (!empty($not_ended[$this->response['data'][$i]['id']]) && !empty($this->response['data'][$i]['series'])){
                 $this->response['data'][$i]['cur_series'] = $not_ended[$this->response['data'][$i]['id']]['series'];
             }
 
@@ -807,6 +829,12 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
 
             if (@$_REQUEST['sortby'] && @$_REQUEST['sortby'] == 'added') {
                 $this->response['data'][$i] = array_merge($this->response['data'][$i], $this->getAddedArr($this->response['data'][$i]['added']));
+            }
+
+            if (Config::getSafe('enable_video_low_quality_option', false)){
+                $this->response['data'][$i]['low_quality'] = intval($this->response['data'][$i]['low_quality']);
+            }else{
+                $this->response['data'][$i]['low_quality'] = 0;
             }
         }
 
@@ -859,6 +887,15 @@ class Vod extends AjaxResponse implements \Stalker\Lib\StbApi\Vod
             $item['title'] = _($item['title']);
             return $item;
         }, $categories);
+
+
+        if (Config::getSafe('enable_coming_soon_section', false)){
+            $categories[] = array(
+                'id'    => 'coming_soon',
+                'title' => _('coming soon'),
+                'alias' => 'coming_soon'
+            );
+        }
 
         return $categories;
     }

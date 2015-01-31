@@ -67,10 +67,19 @@ class Vclub extends Storage
                         'status' => $status
                     );
 
+                    if (preg_match("/^([\d]+)\.(".$this->media_ext_str.")$/i", $file, $tmp_arr)){
+                        $result['series'][] = $tmp_arr[1];
+                        $result['series_file'][] = $file;
+                    }
+
                     $movie_base = substr($file, 0, strrpos($file, '.'));
 
-                    $movie_subtitles = array_filter($subtitles, function($subtitle_file) use ($movie_base){
-                        return strpos($subtitle_file, $movie_base) === 0;
+                    $movie_subtitles = array_filter($subtitles, function($subtitle_file) use ($movie_base, $result){
+                        if (empty($result['series'])){
+                            return strpos($subtitle_file, $movie_base) === 0;
+                        }else{
+                            return substr($subtitle_file, 0, strrpos($subtitle_file, '.')) == $movie_base;
+                        }
                     });
 
                     if (!empty($movie_subtitles)){
@@ -78,11 +87,6 @@ class Vclub extends Storage
                     }
 
                     $result['files'][] = $info;
-
-                    if (preg_match("/^([\d]+)\.(".$this->media_ext_str.")$/i", $file, $tmp_arr)){
-                        $result['series'][] = $tmp_arr[1];
-                        $result['series_file'][] = $file;
-                    }
                 }
             }
             @closedir($handle);
@@ -172,6 +176,7 @@ class Vclub extends Storage
      *
      * @param string $name
      * @return boolean
+     * @throws Exception
      */
     public function createDir($name){
         if (!is_dir(VIDEO_STORAGE_DIR.$name)) {
@@ -187,6 +192,7 @@ class Vclub extends Storage
      * Start counting MD5 SUM for media
      *
      * @param string $media_name
+     * @throws Exception
      */
     public function startMD5Sum($media_name){
         
